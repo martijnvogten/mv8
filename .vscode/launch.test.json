@@ -1,0 +1,30 @@
+{
+    "run": {
+        "default": "",
+        "items": [
+            {
+                "name": "mv8",
+                "projectName": "mv8",
+                "workingDirectory": "/Users/faqtory/git/mv8",
+                "args": [],
+                "vmargs": [],
+                "env": {},
+                "preLaunchTask": ""
+            }
+        ]
+    },
+    "debug": {
+        "default": "",
+        "items": [
+            {
+                "name": "mv8",
+                "projectName": "mv8",
+                "workingDirectory": "/Users/faqtory/git/mv8",
+                "args": [],
+                "vmargs": [],
+                "env": {},
+                "preLaunchTask": ""
+            }
+        ]
+    }
+}

@@ -1,7 +1,7 @@
 #!/bin/bash
 
-g++ -shared -I. -Iinclude -Idep_includes_macosx jni/com_eclipsesource_v8_V8Impl.cpp \
-	-o libj2v8_macosx_x86_64.dylib \
+g++ -shared -I. -Iinclude -Idep_includes_macosx jni/com_mv8_V8.cpp \
+	-o libmv8.dylib \
 	-Wl,libs/libv8_{libbase,libplatform,monolith}.a \
 	-ldl -pthread -std=c++11 -fPIC 
 

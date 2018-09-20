@@ -70,16 +70,15 @@ static void javaCallback(const v8::FunctionCallbackInfo<v8::Value>& args) {
 	else if (getEnvStat == JNI_OK) {
 	}
 
-	// String::Value unicodeString(args[0]->ToString(isolate));
-	jobject result = env->CallObjectMethod(javaInstance, v8CallJavaMethodID);
+	String::Value unicodeString(args[0]->ToString(isolate));
+	jstring javaString = env->NewString(*unicodeString, unicodeString.length());
+	jobject result = env->CallObjectMethod(javaInstance, v8CallJavaMethodID, javaString);
 	
-	// const uint16_t* resultString = env->GetStringChars((jstring)result, NULL);
-	// int length = env->GetStringLength((jstring)result);
-	// Local<String> str = String::NewFromTwoByte(isolate, resultString, String::NewStringType::kNormalString, length);
-	// env->ReleaseStringChars((jstring)result, resultString);
-	// args.GetReturnValue().Set(str);
-
-	// args.GetReturnValue().Set();
+	const uint16_t* resultString = env->GetStringChars((jstring)result, NULL);
+	int length = env->GetStringLength((jstring)result);
+	Local<String> str = String::NewFromTwoByte(isolate, resultString, String::NewStringType::kNormalString, length);
+	env->ReleaseStringChars((jstring)result, resultString);
+	args.GetReturnValue().Set(str);
 }
 
 JNIEXPORT jlong JNICALL Java_com_mv8_V8__1createIsolate(JNIEnv *env, jclass V8, jstring snapshotBlob)

@@ -15,6 +15,8 @@
 
 using namespace v8;
 
+std::mutex g_display_mutex;
+
 Isolate * isolate;
 void runInIsolate(const char * script);
 Persistent<ObjectTemplate> * global;
@@ -34,21 +36,29 @@ long microtime() {
 
 static void LogCallback(const v8::FunctionCallbackInfo<v8::Value>& args) {
   if (args.Length() < 1) return;
+  Isolate::Scope isolate_scope(args.GetIsolate());
   HandleScope scope(args.GetIsolate());
   Local<Value> arg = args[0];
   String::Utf8Value value(arg);
   printf("log: %s\n", *value);
-  {
 	long start = microtime();
-  	v8::Unlocker unlock(isolate);
-	printf("Unlock took %ld\n", microtime() - start);fflush(stdout);
-  }
-  // Wait for some I/O
-  usleep(500000);
+	isolate->Exit();
+	v8::Unlocker unlock(isolate);
+	// printf("Unlock took %ld\n", microtime() - start);fflush(stdout);
+
+  std::thread::id this_id = std::this_thread::get_id();
+ 
+    // g_display_mutex.lock();
+    std::cout << "thread " << this_id << " sleeping...\n";
+    // g_display_mutex.unlock();
+
+  	usleep(500000);
+    std::cout << "thread " << this_id << " waking up...\n";
   {
 	long start = microtime();
 	v8::Locker lock(isolate);
-	printf("Lock took %ld\n", microtime() - start);fflush(stdout);
+	isolate->Enter();
+	// printf("Lock took %ld\n", microtime() - start);fflush(stdout);
   }
 }
 
@@ -83,6 +93,10 @@ int main(int argc, char *argv[])
 	// Create a new Isolate and make it the current one.
 	Isolate::CreateParams create_params;
 	create_params.array_buffer_allocator = v8::ArrayBuffer::Allocator::NewDefaultAllocator();
+	ResourceConstraints constraints;
+	constraints.ConfigureDefaults(512000LL, 512000LL);
+	constraints.set_max_old_space_size(10);
+	create_params.constraints = constraints;
 
 	isolate = Isolate::New(create_params);
 	Isolate::Scope isolate_scope(isolate);
@@ -92,7 +106,8 @@ int main(int argc, char *argv[])
 	global->Reset(isolate, ObjectTemplate::New(isolate));
 	global->Get(isolate)->Set(String::NewFromUtf8(isolate, "log", NewStringType::kNormal).ToLocalChecked(), FunctionTemplate::New(isolate, LogCallback));
 
-	std::thread t1(doit, "for(let i = 0; i < 10; i++) { log('looping' + i);}");
+	// std::thread t1(doit, "for(let i = 0; i < 10; i++) { log('looping' + i);}");
+	std::thread t1(doit, "log('t1: one'); log('t1: two');");
 
 	usleep(100000);
 
@@ -111,11 +126,6 @@ int main(int argc, char *argv[])
 	t3.join();
 	printf("Did it");
 
-	// usleep(1000000);
-	// Dispose the isolate and tear down V8.
-	isolate->Enter();
-
-	isolate->Dispose();
 	V8::Dispose();
 	V8::ShutdownPlatform();
 	delete platform;

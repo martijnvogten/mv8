@@ -3,3 +3,6 @@
 /*.dylib
 /.gradle
 /threads
+/build
+/jars
+/*.log

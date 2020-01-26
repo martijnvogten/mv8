@@ -5,6 +5,7 @@ public class V8Context implements AutoCloseable {
 	private long isolatePtr;
 	private boolean closed = false;
 	private JavaCallback callback = null;
+	private InspectorChannel inspectorChannel;
 	
 	V8Context(long isolatePtr) {
 		this.isolatePtr = isolatePtr;
@@ -40,5 +41,33 @@ public class V8Context implements AutoCloseable {
 		closed = true;
 		_dispose(isolatePtr, ptr);
 	}
+
+	public void sendInspectorMessage(String message) {
+		_sendInspectorMessage(isolatePtr, ptr, message);
+	}
+	
+	public void runIfWaitingForDebugger() {
+		System.out.println("RUNIFWAITINGFORDEBUGGER");
+	}
+	
+	public void quitMessageLoopOnPause() {
+		System.out.println("QUITMESSAGELOOPONPAUSE");
+	}
+	
+	public void runMessageLoopOnPause() {
+		System.out.println("RUNMESSAGELOOPONPAUSE");
+	}
+	
+	public void handleInspectorMessage(String message) {
+		if (inspectorChannel != null) {
+			inspectorChannel.handleInspectorMessage(message);
+		}
+	}
+	
+	public void setInspectorChannel(InspectorChannel channel) {
+		this.inspectorChannel = channel;
+	}
+
+	private static native void _sendInspectorMessage(long isolatePtr, long contextPtr, String message);
 
 }

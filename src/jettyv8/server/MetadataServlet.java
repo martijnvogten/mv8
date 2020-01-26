@@ -20,7 +20,7 @@ public class MetadataServlet extends DefaultServlet {
 	
 	static class ListResponse {
 		String description = "node.js instance";
-		String devtoolsFrontendUrl = "chrome-devtools://devtools/bundled/inspector.html?experiments=true&v8only=true&ws=//127.0.0.1:9229/ws";
+		String devtoolsFrontendUrl = "chrome-devtools://devtools/bundled/inspector.html?experiments=true&v8only=true&ws=//127.0.0.1:9999/ws";
 		String faviconUrl = "https://nodejs.org/static/favicon.ico";
 		String id = "99de305f-5abc-4d73-b924-387e1ca6ef23";
 		String title = "node";

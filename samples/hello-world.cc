@@ -46,6 +46,11 @@ int main(int argc, char *argv[])
   // Create a new Isolate and make it the current one.
   Isolate::CreateParams create_params;
   create_params.snapshot_blob = &data1;
+  ResourceConstraints constraints;
+  constraints.ConfigureDefaults(512000000LL, 512000000LL);
+  constraints.set_max_old_space_size(10);
+  create_params.constraints = constraints;
+
   create_params.array_buffer_allocator = v8::ArrayBuffer::Allocator::NewDefaultAllocator();
 
   Isolate *isolate = Isolate::New(create_params);
@@ -64,6 +69,7 @@ int main(int argc, char *argv[])
     for(int i = 0; i < 100; i++) 
     {
       Local<Context> context = Context::New(isolate);
+
       Context::Scope context_scope(context);
       Local<Script> script = Script::Compile(context, source).ToLocalChecked();
       resultA = script->Run(context).ToLocalChecked();

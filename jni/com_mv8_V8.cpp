@@ -19,14 +19,215 @@
 #include "com_mv8_V8Isolate.h"
 #include "com_mv8_V8Context.h"
 #include "com_mv8_V8Value.h"
+#include "mv8.h"
 
 using namespace std;
 using namespace v8;
 
+void getJNIEnv(JNIEnv*& env);
+
 v8::Platform *v8Platform;
 JavaVM* jvm = NULL;
+
 jclass v8ContextCls = NULL;
 jmethodID v8CallJavaMethodID = NULL;
+
+jclass v8IsolateCls = NULL;
+jmethodID v8runIfWaitingForDebuggerMethodID = NULL;
+jmethodID v8quitMessageLoopOnPauseMethodID = NULL;
+jmethodID v8runMessageLoopOnPauseMethodID = NULL;
+jmethodID v8handleInspectorMessageMethodID = NULL;
+
+class InspectorFrontend final : public v8_inspector::V8Inspector::Channel
+{
+public:
+	explicit InspectorFrontend(V8IsolateData *isolateData, jobject v8Context)
+	{
+		isolateData_ = isolateData;
+		v8Context_ = v8Context;
+	}
+	virtual ~InspectorFrontend() = default;
+
+private:
+	void sendResponse(
+		int callId,
+		std::unique_ptr<v8_inspector::StringBuffer> message) override
+	{
+		Send(message->string());
+	}
+	void sendNotification(
+		std::unique_ptr<v8_inspector::StringBuffer> message) override
+	{
+		Send(message->string());
+	}
+	void flushProtocolNotifications() override {}
+
+	void Send(const v8_inspector::StringView &string)
+	{
+		std::cout << "In Send!" << std::endl;
+
+		v8::Isolate::AllowJavascriptExecutionScope allow_script(isolateData_->isolate);
+		int length = static_cast<int>(string.length());
+		// DCHECK_LT(length, v8::String::kMaxLength);
+		v8::Local<v8::String> message =
+			(string.is8Bit()
+				 ? v8::String::NewFromOneByte(
+					   isolateData_->isolate,
+					   reinterpret_cast<const uint8_t *>(string.characters8()),
+					   v8::NewStringType::kNormal, length)
+				 : v8::String::NewFromTwoByte(
+					   isolateData_->isolate,
+					   reinterpret_cast<const uint16_t *>(string.characters16()),
+					   v8::NewStringType::kNormal, length))
+				.ToLocalChecked();
+
+		JNIEnv *env;
+		getJNIEnv(env);
+		v8::String::Value unicodeString(message);
+		jstring javaString = (env)->NewString(*unicodeString, unicodeString.length());
+		env->CallVoidMethod(v8Context_, v8handleInspectorMessageMethodID, javaString);
+	}
+
+	V8IsolateData *isolateData_;
+	jobject v8Context_;
+};
+
+enum
+{
+	kModuleEmbedderDataIndex,
+	kInspectorClientIndex
+};
+
+class InspectorClient : public v8_inspector::V8InspectorClient
+{
+public:
+	InspectorClient(V8IsolateData *isolateData, jobject v8Context, Local<Context> context, bool connect)
+	{
+		if (!connect)
+			return;
+		isolate_ = context->GetIsolate();
+		channel_.reset(new InspectorFrontend(isolateData, v8Context));
+		inspector_ = v8_inspector::V8Inspector::create(isolate_, this);
+		session_ = inspector_->connect(1, channel_.get(), v8_inspector::StringView());
+
+		context->SetAlignedPointerInEmbedderData(kInspectorClientIndex, this);
+
+		inspector_->contextCreated(v8_inspector::V8ContextInfo(
+			context, kContextGroupId, v8_inspector::StringView()));
+
+		// Local<Value> function =
+		//     FunctionTemplate::New(isolate_, SendInspectorMessage)
+		//         ->GetFunction(context)
+		//         .ToLocalChecked();
+		// Local<String> function_name =
+		//     String::NewFromUtf8(isolate_, "send", NewStringType::kNormal)
+		//         .ToLocalChecked();
+		// context->Global()->Set(context, function_name, function).FromJust();
+
+		context_.Reset(isolate_, context);
+	}
+
+	void runMessageLoopOnPause(int contextGroupId) override
+	{
+		std::cout << "In RunMessageLoopOnPause!" << std::endl;
+		v8::Isolate::AllowJavascriptExecutionScope allow_script(isolate_);
+		v8::HandleScope handle_scope(isolate_);
+		Local<String> callback_name =
+			v8::String::NewFromUtf8(isolate_, "handleInspectorMessage",
+									v8::NewStringType::kNormal)
+				.ToLocalChecked();
+		Local<Context> context = context_.Get(isolate_);
+		Local<Value> callback =
+			context->Global()->Get(context, callback_name).ToLocalChecked();
+		if (!callback->IsFunction())
+			return;
+
+		v8::TryCatch try_catch(isolate_);
+		try_catch.SetVerbose(true);
+		is_paused = true;
+
+		while (is_paused)
+		{
+			// USE(Local<Function>::Cast(callback)->Call(context, Undefined(isolate_), 0, {}));
+			if (try_catch.HasCaught())
+			{
+				is_paused = false;
+			}
+		}
+	}
+
+	void quitMessageLoopOnPause() override { is_paused = false; }
+
+	static v8_inspector::V8InspectorSession *GetSession(Local<Context> context)
+	{
+		InspectorClient *inspector_client = static_cast<InspectorClient *>(context->GetAlignedPointerFromEmbedderData(kInspectorClientIndex));
+		return inspector_client->session_.get();
+	}
+
+private:
+	Local<Context> ensureDefaultContextInGroup(int group_id) override
+	{
+		// DCHECK(isolate_);
+		// DCHECK_EQ(kContextGroupId, group_id);
+		return context_.Get(isolate_);
+	}
+
+	// static void SendInspectorMessage(
+	//     const v8::FunctionCallbackInfo<v8::Value> &args)
+	// {
+	//   Isolate *isolate = args.GetIsolate();
+	//   v8::HandleScope handle_scope(isolate);
+	//   Local<Context> context = isolate->GetCurrentContext();
+	//   args.GetReturnValue().Set(Undefined(isolate));
+	//   Local<String> message = args[0]->ToString(context).ToLocalChecked();
+	//   v8_inspector::V8InspectorSession *session =
+	//       InspectorClient::GetSession(context);
+	//   int length = message->Length();
+	//   std::unique_ptr<uint16_t[]> buffer(new uint16_t[length]);
+	//   message->Write(isolate, buffer.get(), 0, length);
+	//   v8_inspector::StringView message_view(buffer.get(), length);
+	//   {
+	//     v8::SealHandleScope seal_handle_scope(isolate);
+	//     session->dispatchProtocolMessage(message_view);
+	//   }
+	//   args.GetReturnValue().Set(True(isolate));
+	// }
+
+	static const int kContextGroupId = 1;
+
+	std::unique_ptr<v8_inspector::V8Inspector> inspector_;
+	std::unique_ptr<v8_inspector::V8InspectorSession> session_;
+	std::unique_ptr<v8_inspector::V8Inspector::Channel> channel_;
+	bool is_paused = false;
+	Global<Context> context_;
+	Isolate *isolate_;
+};
+
+// Local<Context> InspectorClient::ensureDefaultContextInGroup(int group_id)
+// {
+// 	// DCHECK(isolate_);
+// 	// DCHECK_EQ(kContextGroupId, group_id);
+// 	return context_.Get(isolate_);
+// }
+
+// void InspectorClient::SendInspectorMessage(
+//     const v8::FunctionCallbackInfo<v8::Value>& args) {
+//   Isolate* isolate = args.GetIsolate();
+//   v8::HandleScope handle_scope(isolate);
+//   Local<Context> context = isolate->GetCurrentContext();
+//   args.GetReturnValue().Set(Undefined(isolate));
+
+//   Local<String> message = args[0]->ToString(context).ToLocalChecked();
+//   int length = message->Length();
+//   std::unique_ptr<uint16_t[]> buffer(new uint16_t[length]);
+//   message->Write(buffer.get(), 0, length);
+//   v8_inspector::StringView message_view(buffer.get(), length);
+
+//   v8_inspector::V8InspectorSession* session = GetSession();
+//   session->dispatchProtocolMessage(message_view);
+
+//   args.GetReturnValue().Set(True(isolate));
+// }
 
 class ShellArrayBufferAllocator : public v8::ArrayBuffer::Allocator
 {
@@ -41,14 +242,6 @@ class ShellArrayBufferAllocator : public v8::ArrayBuffer::Allocator
 };
 
 ShellArrayBufferAllocator array_buffer_allocator;
-
-class V8IsolateData
-{
-  public:
-	Isolate *isolate;
-	StartupData startupData;
-	Persistent<ObjectTemplate> * globalObjectTemplate;
-};
 
 static void javaCallback(const v8::FunctionCallbackInfo<v8::Value>& args) {
 	if (args.Length() < 1) return;
@@ -104,6 +297,7 @@ JNIEXPORT jlong JNICALL Java_com_mv8_V8__1createIsolate(JNIEnv *env, jclass V8, 
 	Handle<ObjectTemplate> globalObject = ObjectTemplate::New(isolate);
 	globalObject->Set(String::NewFromUtf8(isolate, "__calljava", NewStringType::kNormal).ToLocalChecked(), FunctionTemplate::New(isolate, javaCallback));
 	isolateData->globalObjectTemplate = new Persistent<ObjectTemplate>(isolate, globalObject);
+	std::cout << "Created ISOLATE" << std::endl;
 
 	return reinterpret_cast<jlong>(isolateData);
 }
@@ -120,6 +314,8 @@ JNIEXPORT jlong JNICALL Java_com_mv8_V8Isolate__1createContext(JNIEnv * env, jcl
 	Local<External> ext = External::New(isolate, instanceRef);
 	context->SetEmbedderData(1, ext);
 	Persistent<Context> *persistentContext = new Persistent<Context>(isolate, context);
+	isolateData->inspector = new InspectorClient(isolateData, instanceRef, context, true);
+
 	return reinterpret_cast<jlong>(persistentContext);
 }
 
@@ -192,6 +388,44 @@ JNIEXPORT jlong JNICALL Java_com_mv8_V8Isolate__1createObjectTemplate(JNIEnv *, 
 	return reinterpret_cast<jlong>(persistent);
 }
 
+JNIEXPORT void JNICALL Java_com_mv8_V8Context__1sendInspectorMessage(JNIEnv * env, jclass, jlong isolatePtr, jlong contextPtr, jstring message)
+{
+	std::cout << "INSPECTOR MESSAGE" << std::endl;
+
+	V8IsolateData *isolateData = reinterpret_cast<V8IsolateData *>(isolatePtr);
+    Isolate::Scope isolate_scope(isolateData->isolate);
+    HandleScope scope(isolateData->isolate);
+
+	Persistent<Context> *persistentContext = reinterpret_cast<Persistent<Context> *>(contextPtr);
+	Local<Context> context = persistentContext->Get(isolateData->isolate);
+
+	std::cout << "Got the session" << std::endl;
+
+    const uint16_t* unicodeString = env->GetStringChars(message, NULL);
+    int length = env->GetStringLength(message);
+	// std::cout << "Length: " << length << std::endl;
+
+    std::unique_ptr<uint16_t[]> buffer(new uint16_t[length]);
+    for (int i = 0; i < length; i++) {
+      buffer[i] = unicodeString[i];
+    }
+    // v8_inspector::StringView message_view(unicodeString, length);
+    // v8_inspector::StringView message_view;
+
+	// std::cout << "Going to dispatch: " << session << std::endl;
+	v8_inspector::StringView message_view(buffer.get(), length);
+	{
+		// v8::SealHandleScope seal_handle_scope(isolateData->isolate);
+		v8_inspector::V8InspectorSession* session = InspectorClient::GetSession(context);
+		session->dispatchProtocolMessage(message_view);
+	}
+
+	env->ReleaseStringChars(message, unicodeString);
+
+	std::cout << "After dispatch: " << std::endl;
+}
+
+
 class MethodDescriptor {
 public:
   jlong methodID;
@@ -235,6 +469,12 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved)
 	jvm = vm;
     v8ContextCls = (jclass)env->NewGlobalRef((env)->FindClass("com/mv8/V8Context"));
 	v8CallJavaMethodID = env->GetMethodID(v8ContextCls, "__calljava", "(Ljava/lang/String;)Ljava/lang/String;");
+	v8runIfWaitingForDebuggerMethodID = env->GetMethodID(v8ContextCls, "runIfWaitingForDebugger", "()V");
+	v8quitMessageLoopOnPauseMethodID = env->GetMethodID(v8ContextCls, "quitMessageLoopOnPause", "()V");
+	v8runMessageLoopOnPauseMethodID = env->GetMethodID(v8ContextCls, "runMessageLoopOnPause", "()V");
+	v8handleInspectorMessageMethodID = env->GetMethodID(v8ContextCls, "handleInspectorMessage", "(Ljava/lang/String;)V");
+
+	std::cout << "v8handleInspectorMessageMethodID" << v8handleInspectorMessageMethodID << std::endl;
 
 	return JNI_VERSION_1_6;
 }

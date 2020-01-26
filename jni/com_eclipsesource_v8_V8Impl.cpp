@@ -160,7 +160,7 @@ jmethodID v8FunctionInitMethodID = NULL;
 jmethodID v8ObjectInitMethodID = NULL;
 jmethodID v8RuntimeExceptionInitMethodID = NULL;
 
-jmethodID v8InspectorMessageMethodID = NULL;
+jmethodID v8handleInspectorMessageMethodID = NULL;
 jmethodID v8runMessageLoopOnPauseMethodID = NULL;
 jmethodID v8quitMessageLoopOnPauseMethodID = NULL;
 jmethodID v8runIfWaitingForDebuggerMethodID = NULL;
@@ -320,7 +320,7 @@ class InspectorFrontend final : public v8_inspector::V8Inspector::Channel {
     getJNIEnv(env);
     String::Value unicodeString(message);
     jstring javaString = (env)->NewString(*unicodeString, unicodeString.length());
-    env->CallVoidMethod(runtime_->v8, v8InspectorMessageMethodID, javaString);
+    env->CallVoidMethod(runtime_->v8, v8handleInspectorMessageMethodID, javaString);
   }
 
   Isolate* isolate_;
@@ -451,7 +451,7 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     undefinedV8ObjectInitMethodID = env->GetMethodID(undefinedV8ObjectCls, "<init>", "()V");
     v8RuntimeExceptionInitMethodID = env->GetMethodID(v8RuntimeExceptionCls, "<init>", "(Ljava/lang/String;)V");
 
-    v8InspectorMessageMethodID = env->GetMethodID(v8cls, "inspectorMessage", "(Ljava/lang/String;)V");
+    v8handleInspectorMessageMethodID = env->GetMethodID(v8cls, "inspectorMessage", "(Ljava/lang/String;)V");
     v8runMessageLoopOnPauseMethodID = env->GetMethodID(v8cls, "runMessageLoopOnPause", "()V");
     v8quitMessageLoopOnPauseMethodID = env->GetMethodID(v8cls, "quitMessageLoopOnPause", "()V");
     v8runIfWaitingForDebuggerMethodID = env->GetMethodID(v8cls, "runIfWaitingForDebugger", "()V");

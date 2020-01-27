@@ -1,5 +1,7 @@
 package com.mv8;
 
+import jettyv8.server.DebugServer;
+
 public class V8Context implements AutoCloseable {
 	private long ptr;
 	private long isolatePtr;
@@ -52,10 +54,20 @@ public class V8Context implements AutoCloseable {
 	
 	public void quitMessageLoopOnPause() {
 		System.out.println("QUITMESSAGELOOPONPAUSE");
+		try {
+			DebugServer.quitMessageLoopOnPause();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
 	}
 	
 	public void runMessageLoopOnPause() {
 		System.out.println("RUNMESSAGELOOPONPAUSE");
+		try {
+			DebugServer.runMessageLoopOnPause();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
 	}
 	
 	public void handleInspectorMessage(String message) {

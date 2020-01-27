@@ -1,5 +1,7 @@
 package jettyv8.server;
 
+import java.util.concurrent.LinkedBlockingQueue;
+
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.servlet.ServletContextHandler;
@@ -19,8 +21,12 @@ import com.mv8.V8Value;
 
 public class DebugServer {
 	
-	static V8Context context;
+	private static V8Context context;
 	
+	private static LinkedBlockingQueue<String> messagesFromInspectorFrontEnd = new LinkedBlockingQueue<>();
+	
+	private static boolean quitMessageLoop;
+
 	public static class MessagingAdapter extends WebSocketAdapter implements InspectorChannel {
 		
 	    private Session session;
@@ -35,18 +41,15 @@ public class DebugServer {
 	    @Override
 	    public void onWebSocketClose(int statusCode, String reason) {
 	        this.session = null;
-	        
 	        System.err.println("Close connection " + statusCode + ", " + reason);
-	        
 	        super.onWebSocketClose(statusCode, reason); 
 	    }
 	    
 	    @Override
 	    public void onWebSocketText(String message) {
-	    	System.out.println("Got message: " + message);
-	    	context.sendInspectorMessage(message);
+	    	super.onWebSocketText(message);
 	    	
-	        super.onWebSocketText(message); 
+	    	messagesFromInspectorFrontEnd.offer(message);
 	    }
 	    
 	    public void sendText(String text) throws Exception {
@@ -56,7 +59,6 @@ public class DebugServer {
 		@Override
 		public void handleInspectorMessage(String message) {
 	        try {
-	        	System.out.println("SENDING INSPECTOR MESSAGE: " + message);
 	        	sendText(message);
 	        } catch (Exception e) {
 	        	throw new RuntimeException(e);
@@ -74,6 +76,7 @@ public class DebugServer {
 	}
 	
 	public static void main(String[] args) throws Exception {
+		
 		Server server = new Server();
 		ServerConnector connector = new ServerConnector(server);
         connector.setPort(9999);
@@ -83,9 +86,15 @@ public class DebugServer {
         handler.setContextPath("/");
         server.setHandler(handler);
         
-		V8Isolate isolate = V8.createIsolate("sayIt = function() {return 'it' + new Date().getTime()};");
+		V8Isolate isolate = V8.createIsolate(
+				"sayIt = function() {return 'it' + new Date().getTime()};\n"
+			);
 		context = isolate.createContext();
-		V8Value result = context.runScript("'Hello ' + 'world!'");
+		V8Value result = context.runScript("debugIt = function() {\n"
+				+ " const a = 6, b = 7;\n"
+				+ " debugger;\n"
+				+ " return 'did it' + (a * b);\n"
+				+ "};\n");
 		System.out.println(result.getStringValue());
 
 		handler.addServlet(InspectorDebugServlet.class, "/ws");
@@ -94,7 +103,38 @@ public class DebugServer {
         handler.addServlet(MetadataServlet.class, "/json/version");
         
         server.start();
+        new Thread(() -> {
+        	try {
+				runMessageLoop();
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+        }).start();
         server.join();
+	}
+	
+	public static void runMessageLoop() throws Exception {
+		while (true) {
+			String message = messagesFromInspectorFrontEnd.poll();
+			if (message != null) {
+				System.out.println("Sending message: " + message);
+				context.sendInspectorMessage(message);
+			}
+			if (quitMessageLoop) {
+				quitMessageLoop = false;
+				break;
+			} else {
+				Thread.yield();
+			}
+		}
+	}
+	
+	public static void quitMessageLoopOnPause() {
+		quitMessageLoop = true;
+	}
+	
+	public static void runMessageLoopOnPause() throws Exception {
+		runMessageLoop();
 	}
 
 	@Test

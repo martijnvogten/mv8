@@ -245,7 +245,7 @@ JNIEXPORT jlong JNICALL Java_com_mv8_V8Isolate__1createContext(JNIEnv * env, jcl
 	return reinterpret_cast<jlong>(persistentContext);
 }
 
-JNIEXPORT jlong JNICALL Java_com_mv8_V8Context__1runScript(JNIEnv *env, jclass clz, jlong isolatePtr, jlong contextPtr, jstring scriptSource)
+JNIEXPORT jlong JNICALL Java_com_mv8_V8Context__1runScript(JNIEnv *env, jclass clz, jlong isolatePtr, jlong contextPtr, jstring scriptSource, jstring scriptName)
 {
 	V8IsolateData *isolateData = reinterpret_cast<V8IsolateData *>(isolatePtr);
 	Isolate *isolate = isolateData->isolate;
@@ -261,8 +261,14 @@ JNIEXPORT jlong JNICALL Java_com_mv8_V8Context__1runScript(JNIEnv *env, jclass c
 	Local<String> source = String::NewFromTwoByte(isolate, unicodeString, String::NewStringType::kNormalString, length);
 	env->ReleaseStringChars(scriptSource, unicodeString);
 
+	const uint16_t* scriptNameString = env->GetStringChars(scriptName, NULL);
+	length = env->GetStringLength(scriptName);
+	Local<String> name = String::NewFromTwoByte(isolate, scriptNameString, String::NewStringType::kNormalString, length);
+	env->ReleaseStringChars(scriptName, scriptNameString);
+
 	Context::Scope context_scope(context);
-	Local<Script> script = Script::Compile(context, source).ToLocalChecked();
+	v8::ScriptOrigin origin(name);
+	Local<Script> script = Script::Compile(context, source, &origin).ToLocalChecked();
 
 	Local<Value> result;
 	if (!script->Run(context).ToLocal(&result)) {

@@ -75,42 +75,51 @@ public class DebugServer {
 	    }
 	}
 	
-	public static void main(String[] args) throws Exception {
+	public static Server startDebugServerForContext(V8Context context2, int i) throws Exception {
+		context = context2;
 		
 		Server server = new Server();
 		ServerConnector connector = new ServerConnector(server);
-        connector.setPort(9999);
-        server.addConnector(connector);
-        
-        ServletContextHandler handler = new ServletContextHandler(ServletContextHandler.SESSIONS);
-        handler.setContextPath("/");
-        server.setHandler(handler);
-        
+		connector.setPort(9999);
+		server.addConnector(connector);
+		
+		ServletContextHandler handler = new ServletContextHandler(ServletContextHandler.SESSIONS);
+		handler.setContextPath("/");
+		server.setHandler(handler);
+		
+		handler.addServlet(InspectorDebugServlet.class, "/ws");
+		handler.addServlet(MetadataServlet.class, "/json");
+		handler.addServlet(MetadataServlet.class, "/json/list");
+		handler.addServlet(MetadataServlet.class, "/json/version");
+		
+		server.start();
+		
+		new Thread(() -> {
+			try {
+				runMessageLoop();
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+		}).start();
+		
+		return server;
+	}
+	
+	public static void main(String[] args) throws Exception {
 		V8Isolate isolate = V8.createIsolate(
 				"sayIt = function() {return 'it' + new Date().getTime()};\n"
-			);
+				);
+		
 		context = isolate.createContext();
 		V8Value result = context.runScript("debugIt = function() {\n"
 				+ " const a = 6, b = 7;\n"
 				+ " debugger;\n"
 				+ " return 'did it' + (a * b);\n"
-				+ "};\n");
+				+ "};\n", "");
 		System.out.println(result.getStringValue());
-
-		handler.addServlet(InspectorDebugServlet.class, "/ws");
-        handler.addServlet(MetadataServlet.class, "/json");
-        handler.addServlet(MetadataServlet.class, "/json/list");
-        handler.addServlet(MetadataServlet.class, "/json/version");
-        
-        server.start();
-        new Thread(() -> {
-        	try {
-				runMessageLoop();
-			} catch (Exception e) {
-				e.printStackTrace();
-			}
-        }).start();
-        server.join();
+		
+		Server server = startDebugServerForContext(context, 9999);
+		server.join();
 	}
 	
 	public static void runMessageLoop() throws Exception {
@@ -141,7 +150,7 @@ public class DebugServer {
 	public void hello() {
 		V8Isolate isolate = V8.createIsolate(null);
 		V8Context context = isolate.createContext();
-		V8Value result = context.runScript("'Hello ' + 'world!'");
+		V8Value result = context.runScript("'Hello ' + 'world!'", "");
 		System.out.println(result.getStringValue());
 	}
 
@@ -158,18 +167,19 @@ public class DebugServer {
 		};
 		context.setCallback(cb);
 		
-		V8Value result = context.runScript("__calljava('print:henk');");
+		V8Value result = context.runScript("__calljava('print:henk');", "");
 		
 		System.out.println(result.getStringValue());
 		
 		for(int i = 0; i < 10; i++) {
 			try (V8Context context2 = isolate.createContext()) {
 				context2.setCallback(cb);
-				context2.runScript("__calljava('print:' + sayIt());");
+				context2.runScript("__calljava('print:' + sayIt());", "");
 				TimeIt.time("100000 invocations", () -> {
-					context2.runScript("for(var i = 0; i < 100000; i++) {__calljava(sayIt())};");
+					context2.runScript("for(var i = 0; i < 100000; i++) {__calljava(sayIt())};", "");
 				});
 			}
 		}
 	}
+
 }

@@ -26,7 +26,7 @@ public class MetadataServlet extends DefaultServlet {
 		String title = "node";
 		String type = "node";
 		String url = "file://";
-		String webSocketDebuggerUrl = "ws://127.0.0.1:2992/ws";
+		String webSocketDebuggerUrl = "ws://localhost:9999/ws";
 	}
 
 	

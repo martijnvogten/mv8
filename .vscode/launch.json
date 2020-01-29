@@ -5,32 +5,31 @@
 	"version": "0.2.0",
 	"configurations": [
 		{
-			"type": "java",
-			"name": "Debug (Launch)",
+			"type": "node",
 			"request": "launch",
+			"name": "WebServer",
+			"runtimeExecutable": "java",
+			"runtimeArgs": ["-cp", "bin/main:jars/*", "jettyv8.server.WebServer"],
+			"port": 9999,
+			"address": "localhost",
+			"program": "${workspaceFolder}/typescript/build.js",
+			"sourceMaps": true,
 			"cwd": "${workspaceFolder}",
-			"console": "internalConsole",
-			"stopOnEntry": false,
-			"mainClass": "",
-			"args": ""
+			"skipFiles": [
+				"<node_internals>/**"
+			]
 		},
 		{
-			"type": "java",
-			"name": "Debug (Launch)-DebugServer<mv8>",
-			"request": "launch",
-			"cwd": "${workspaceFolder}",
-			"console": "internalConsole",
-			"stopOnEntry": false,
-			"mainClass": "jettyv8.server.DebugServer",
-			"args": "",
-			"projectName": "mv8"
-		},
-		{
-			"type": "java",
-			"name": "Debug (Attach)",
+			"type": "node",
 			"request": "attach",
-			"hostName": "localhost",
-			"port": "<debug port of remote debuggee>"
+			"name": "Attach to Remote",
+			"address": "127.0.0.1",
+			"port": 9999,
+			"localRoot": "${workspaceFolder}",
+			"remoteRoot": "Absolute path to the remote directory containing the program",
+			"skipFiles": [
+				"<node_internals>/**"
+			]
 		}
 	]
 }

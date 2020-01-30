@@ -308,6 +308,8 @@ JNIEXPORT void JNICALL Java_com_mv8_V8Context__1dispose(JNIEnv *env, jclass, jlo
 	HandleScope handle_scope(isolate);
 
 	Local<Context> context = persistentContext->Get(isolate);
+	isolateData->inspector->disconnectContext(context);
+
 	Local<External> data = Local<External>::Cast(context->GetEmbedderData(1));
 	jobject javaInstance = reinterpret_cast<jobject>(data->Value());
 	env->DeleteGlobalRef(javaInstance);

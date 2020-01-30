@@ -3,6 +3,7 @@ package jettyv8.server;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -28,7 +29,8 @@ public class WebServer {
 	static Logger logger = LoggerFactory.getLogger(WebServer.class);
 	
 	static ExecutorService worker = Executors.newSingleThreadExecutor();
-	private static V8Context context;
+
+	private static V8Isolate isolate;
 	
 	public static class HelloWorldServlet extends DefaultServlet {
 		
@@ -40,9 +42,23 @@ public class WebServer {
 				response.setContentType("text/html");
 				response.setCharacterEncoding(StandardCharsets.UTF_8.name());
 				
+				final String contextName = "webserver-" + Thread.currentThread().getName();
+				
 				FutureTask<String> task = new FutureTask<String>(() -> {
-					return context.runScript("renderHTML()", "").getStringValue();
+					try (V8Context context = isolate.createContext(contextName)) {
+						context.setCallback((payload) -> {
+							logger.debug("Got callback with payload: " + payload);
+							return "";
+						});
+						
+						context.runScript(readJsFiles(Paths.get("typescript", "build.js")), "typescript/build.js");
+						
+						return context.runScript("renderHTML()", "").getStringValue();
+					} catch (Exception e) {
+						throw new RuntimeException(e);
+					}
 				});
+				
 				worker.submit(task);
 				String html = task.get();
 				
@@ -56,25 +72,20 @@ public class WebServer {
 	}
 
 	public static void main(String[] args) throws Exception {
+		DebugServer debugServer = DebugServer.start(9999);
+		
 		worker.execute(() -> {
 			try {
-				DebugServer debugServer = DebugServer.start(9999);
 				
-				V8Isolate isolate = V8.createIsolate("sayIt = function() {return 'it' + new Date().getTime()};\n");
+				String reactJs = readJsFiles(
+						Paths.get("js", "react.js"), 
+						Paths.get("js", "react-dom.js"), 
+						Paths.get("js", "react-dom-server.js"));
+				
+				isolate = V8.createIsolate("process = {pid: 12345, version: '8.3.14', arch: 'darwin'};\n\n" + reactJs);
+						
 				debugServer.attachIsolate(isolate);
 				
-				context = isolate.createContext("webserver");
-				
-				context.setCallback((payload) -> {
-					logger.debug("Got callback with payload: " + payload);
-					return "";
-				});
-				
-				context.runScript("process = {pid: 12345, version: '8.3.14', arch: 'darwin'};", "");
-				context.runScript(new String(Files.readAllBytes(Paths.get("js", "react.js")), StandardCharsets.UTF_8.name()), "js/react.js");
-				context.runScript(new String(Files.readAllBytes(Paths.get("js", "react-dom.js")), StandardCharsets.UTF_8.name()), "js/react-dom.js");
-				context.runScript(new String(Files.readAllBytes(Paths.get("js", "react-dom-server.js")), StandardCharsets.UTF_8.name()), "js/react-dom-server.js");
-				context.runScript(new String(Files.readAllBytes(Paths.get("typescript", "build.js")), StandardCharsets.UTF_8.name()), "typescript/build.js");
 			} catch (Exception e) {
 				throw new RuntimeException(e);
 			}
@@ -94,5 +105,16 @@ public class WebServer {
 		server.start();
 		
 		server.join();
+	}
+
+	private static String readJsFiles(Path... paths) throws Exception {
+		StringBuilder result = new StringBuilder();
+		for (Path p : paths) {
+			if (result.length() > 0) {
+				result.append("\n\n");
+			}
+			result.append(new String(Files.readAllBytes(p), StandardCharsets.UTF_8.name()));
+		}
+		return result.toString();
 	}
 }

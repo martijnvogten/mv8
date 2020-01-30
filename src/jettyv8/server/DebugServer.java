@@ -1,6 +1,9 @@
 package jettyv8.server;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -185,7 +188,7 @@ public class DebugServer {
 				+ "};\n"
 				+ "debugIt();\n", "");
 		
-		V8Isolate isolateTwo = V8.createIsolate(null);
+		V8Isolate isolateTwo = V8.createIsolate(new String(Files.readAllBytes(Paths.get("js", "react.js")), StandardCharsets.UTF_8.name()));
 		server.attachIsolate(isolateTwo);
 		
 		V8Context i2 = isolateTwo.createContext("isolateTwo");

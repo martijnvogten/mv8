@@ -23,14 +23,6 @@ JNIEXPORT jlong JNICALL Java_com_mv8_V8Context__1runScript
 JNIEXPORT void JNICALL Java_com_mv8_V8Context__1dispose
   (JNIEnv *, jclass, jlong, jlong);
 
-/*
- * Class:     com_mv8_V8Context
- * Method:    _sendInspectorMessage
- * Signature: (JJLjava/lang/String;)V
- */
-JNIEXPORT void JNICALL Java_com_mv8_V8Context__1sendInspectorMessage
-  (JNIEnv *, jclass, jlong, jlong, jstring);
-
 #ifdef __cplusplus
 }
 #endif

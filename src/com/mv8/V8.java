@@ -8,10 +8,12 @@ public class V8 {
 	}
 
 	public static V8Isolate createIsolate(String snapshotBlob) {
-		return new V8Isolate(_createIsolate(snapshotBlob));
+		V8Isolate isolate = new V8Isolate();
+		isolate.init(_createIsolate(isolate, snapshotBlob));
+		return isolate;
 	}
 
-	private static native long _createIsolate(String snapshotBlob);
+	private static native long _createIsolate(V8Isolate isolate, String snapshotBlob);
 
 	@Test
 	public void doit() {

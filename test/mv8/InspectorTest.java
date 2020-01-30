@@ -18,7 +18,7 @@ public class InspectorTest {
 	@Test
 	public void hello() {
 		V8Isolate isolate = V8.createIsolate(null);
-		V8Context context = isolate.createContext();
+		V8Context context = isolate.createContext("default");
 		V8Value result = context.runScript("'Hello ' + 'world!'", "");
 		logger.debug(result.getStringValue());
 	}

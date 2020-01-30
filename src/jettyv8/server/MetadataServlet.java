@@ -2,7 +2,9 @@ package jettyv8.server;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.Callable;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
@@ -17,8 +19,14 @@ import com.google.gson.JsonObject;
 public class MetadataServlet extends DefaultServlet {
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 	private static final long serialVersionUID = 1L;
+	private Callable<List<IsolateMetadata>> isolatesMetadataProvider;
 	
-	static class ListResponse {
+	public MetadataServlet(Callable<List<IsolateMetadata>> isolatesMetadataProvider) {
+		super();
+		this.isolatesMetadataProvider = isolatesMetadataProvider;
+	}
+	
+	public static class IsolateMetadata {
 		String description = "node.js instance";
 		String devtoolsFrontendUrl = "chrome-devtools://devtools/bundled/inspector.html?experiments=true&v8only=true&ws=//127.0.0.1:9999/ws";
 		String faviconUrl = "https://nodejs.org/static/favicon.ico";
@@ -27,8 +35,17 @@ public class MetadataServlet extends DefaultServlet {
 		String type = "node";
 		String url = "file://";
 		String webSocketDebuggerUrl = "ws://localhost:9999/ws";
+		
+		static IsolateMetadata create(String title, String hostName, int port, String id, String urlPath) {
+			IsolateMetadata result = new IsolateMetadata();
+			String urlWithoutProtocol = "//" + hostName + ":" + port + urlPath;
+			result.webSocketDebuggerUrl = "ws:" + urlWithoutProtocol;
+			result.devtoolsFrontendUrl = "chrome-devtools://devtools/bundled/inspector.html?experiments=true&v8only=true&ws=" + urlWithoutProtocol; 
+			result.id = id;
+			result.title = title;
+			return result;
+		}
 	}
-
 	
 	@Override
 	protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
@@ -40,7 +57,11 @@ public class MetadataServlet extends DefaultServlet {
 		switch(request.getRequestURI()) {
 		case "/json/list":
 		case "/json":
-			result = GSON.toJson(Arrays.asList(new ListResponse()));
+			try {
+				result = GSON.toJson(isolatesMetadataProvider.call());
+			} catch (Exception e) {
+				throw new RuntimeException(e);
+			}
 			break;
 		case "/json/version":
 			JsonObject o = new JsonObject();

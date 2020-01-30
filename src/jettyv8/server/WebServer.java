@@ -28,6 +28,7 @@ public class WebServer {
 	static Logger logger = LoggerFactory.getLogger(WebServer.class);
 	
 	static ExecutorService worker = Executors.newSingleThreadExecutor();
+	private static V8Context context;
 	
 	public static class HelloWorldServlet extends DefaultServlet {
 		
@@ -38,11 +39,13 @@ public class WebServer {
 			try {
 				response.setContentType("text/html");
 				response.setCharacterEncoding(StandardCharsets.UTF_8.name());
+				
 				FutureTask<String> task = new FutureTask<String>(() -> {
 					return context.runScript("renderHTML()", "").getStringValue();
 				});
 				worker.submit(task);
 				String html = task.get();
+				
 				response.setStatus(200);
 				response.getWriter().println(html);
 			} catch (InterruptedException | ExecutionException e) {
@@ -52,20 +55,20 @@ public class WebServer {
 		}
 	}
 
-	private static V8Context context;
-	
 	public static void main(String[] args) throws Exception {
 		worker.execute(() -> {
 			try {
+				DebugServer debugServer = DebugServer.start(9999);
+				
 				V8Isolate isolate = V8.createIsolate("sayIt = function() {return 'it' + new Date().getTime()};\n");
-				context = isolate.createContext();
+				debugServer.attachIsolate(isolate);
+				
+				context = isolate.createContext("webserver");
 				
 				context.setCallback((payload) -> {
 					logger.debug("Got callback with payload: " + payload);
 					return "";
 				});
-				
-				DebugServer.startDebugServerForContext(context, 9999);
 				
 				context.runScript("process = {pid: 12345, version: '8.3.14', arch: 'darwin'};", "");
 				context.runScript(new String(Files.readAllBytes(Paths.get("js", "react.js")), StandardCharsets.UTF_8.name()), "js/react.js");

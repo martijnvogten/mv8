@@ -24,10 +24,10 @@
 using namespace std;
 using namespace v8;
 
-void getJNIEnv(JNIEnv*& env);
+void getJNIEnv(JNIEnv *&env);
 
 v8::Platform *v8Platform;
-JavaVM* jvm = NULL;
+JavaVM *jvm = NULL;
 
 jclass v8ContextCls = NULL;
 jmethodID v8CallJavaMethodID = NULL;
@@ -41,11 +41,12 @@ jmethodID v8handleInspectorMessageMethodID = NULL;
 class InspectorFrontend final : public v8_inspector::V8Inspector::Channel
 {
 public:
-	explicit InspectorFrontend(V8IsolateData *isolateData, jobject v8Context)
+	explicit InspectorFrontend(V8IsolateData *isolateData, jobject v8Isolate)
 	{
 		isolateData_ = isolateData;
-		v8Context_ = v8Context;
+		v8Isolate_ = v8Isolate;
 	}
+
 	virtual ~InspectorFrontend() = default;
 
 private:
@@ -84,58 +85,53 @@ private:
 		getJNIEnv(env);
 		v8::String::Value unicodeString(message);
 		jstring javaString = (env)->NewString(*unicodeString, unicodeString.length());
-		env->CallVoidMethod(v8Context_, v8handleInspectorMessageMethodID, javaString);
+		env->CallVoidMethod(v8Isolate_, v8handleInspectorMessageMethodID, javaString);
 	}
 
 	V8IsolateData *isolateData_;
-	jobject v8Context_;
-};
-
-enum
-{
-	kModuleEmbedderDataIndex,
-	kJavaV8ContextIndex,
-	kInspectorClientIndex
+	jobject v8Isolate_;
 };
 
 class InspectorClient : public v8_inspector::V8InspectorClient
 {
 public:
-	InspectorClient(V8IsolateData *isolateData, jobject v8Context, Local<Context> context, bool connect)
+	InspectorClient(V8IsolateData *isolateData, jobject v8Isolate)
 	{
-		if (!connect)
-			return;
-
-		isolate_ = context->GetIsolate();
-		channel_.reset(new InspectorFrontend(isolateData, v8Context));
+		isolate_ = isolateData->isolate;
+		channel_.reset(new InspectorFrontend(isolateData, v8Isolate));
 		inspector_ = v8_inspector::V8Inspector::create(isolate_, this);
 		session_ = inspector_->connect(1, channel_.get(), v8_inspector::StringView());
-		v8Context_ = v8Context;
+		v8Isolate_ = v8Isolate;
+	}
 
-		context->SetAlignedPointerInEmbedderData(kInspectorClientIndex, this);
-
-		inspector_->contextCreated(v8_inspector::V8ContextInfo(context, kContextGroupId, v8_inspector::StringView()));
-
+	void connectContext(Local<Context> context, v8_inspector::StringView name)
+	{
+		inspector_->contextCreated(v8_inspector::V8ContextInfo(context, kContextGroupId, name));
 		context_.Reset(isolate_, context);
+	}
+
+	void disconnectContext(Local<Context> context)
+	{
+		inspector_->contextDestroyed(context);
 	}
 
 	void runMessageLoopOnPause(int contextGroupId) override
 	{
-		JNIEnv * env;
+		JNIEnv *env;
 		getJNIEnv(env);
-		env->CallVoidMethod(v8Context_, v8runMessageLoopOnPauseMethodID);
+		env->CallVoidMethod(v8Isolate_, v8runMessageLoopOnPauseMethodID);
 	}
 
-	void quitMessageLoopOnPause() override { 
-		JNIEnv * env;
-		getJNIEnv(env);
-		env->CallVoidMethod(v8Context_, v8quitMessageLoopOnPauseMethodID);
-	}
-
-	static v8_inspector::V8InspectorSession *GetSession(Local<Context> context)
+	void quitMessageLoopOnPause() override
 	{
-		InspectorClient *inspector_client = static_cast<InspectorClient *>(context->GetAlignedPointerFromEmbedderData(kInspectorClientIndex));
-		return inspector_client->session_.get();
+		JNIEnv *env;
+		getJNIEnv(env);
+		env->CallVoidMethod(v8Isolate_, v8quitMessageLoopOnPauseMethodID);
+	}
+
+	v8_inspector::V8InspectorSession *GetSession()
+	{
+		return session_.get();
 	}
 
 private:
@@ -152,12 +148,12 @@ private:
 	bool is_paused = false;
 	Global<Context> context_;
 	Isolate *isolate_;
-	jobject v8Context_;
+	jobject v8Isolate_;
 };
 
 class ShellArrayBufferAllocator : public v8::ArrayBuffer::Allocator
 {
-  public:
+public:
 	virtual void *Allocate(size_t length)
 	{
 		void *data = AllocateUninitialized(length);
@@ -169,40 +165,45 @@ class ShellArrayBufferAllocator : public v8::ArrayBuffer::Allocator
 
 ShellArrayBufferAllocator array_buffer_allocator;
 
-static void javaCallback(const v8::FunctionCallbackInfo<v8::Value>& args) {
-	if (args.Length() < 1) return;
+static void javaCallback(const v8::FunctionCallbackInfo<v8::Value> &args)
+{
+	if (args.Length() < 1)
+		return;
 
-	Isolate * isolate = args.GetIsolate();
+	Isolate *isolate = args.GetIsolate();
 	Local<Context> context = isolate->GetCurrentContext();
 	HandleScope scope(isolate);
 
 	Local<External> data = Local<External>::Cast(context->GetEmbedderData(1));
 	jobject javaInstance = reinterpret_cast<jobject>(data->Value());
 
-	JNIEnv * env;
+	JNIEnv *env;
 	int getEnvStat = jvm->GetEnv((void **)&env, JNI_VERSION_1_6);
-  	if (getEnvStat == JNI_EDETACHED) {
-		if (jvm->AttachCurrentThread((void **)&env, NULL) != 0) {
+	if (getEnvStat == JNI_EDETACHED)
+	{
+		if (jvm->AttachCurrentThread((void **)&env, NULL) != 0)
+		{
 			std::cout << "Failed to attach" << std::endl;
 		}
 	}
-	else if (getEnvStat == JNI_OK) {
+	else if (getEnvStat == JNI_OK)
+	{
 	}
 
 	String::Value unicodeString(args[0]->ToString(isolate));
 	jstring javaString = env->NewString(*unicodeString, unicodeString.length());
 	jobject result = env->CallObjectMethod(javaInstance, v8CallJavaMethodID, javaString);
-	
-	const uint16_t* resultString = env->GetStringChars((jstring)result, NULL);
+
+	const uint16_t *resultString = env->GetStringChars((jstring)result, NULL);
 	int length = env->GetStringLength((jstring)result);
 	Local<String> str = String::NewFromTwoByte(isolate, resultString, String::NewStringType::kNormalString, length);
 	env->ReleaseStringChars((jstring)result, resultString);
 	args.GetReturnValue().Set(str);
 }
 
-JNIEXPORT jlong JNICALL Java_com_mv8_V8__1createIsolate(JNIEnv *env, jclass V8, jstring snapshotBlob)
+JNIEXPORT jlong JNICALL Java_com_mv8_V8__1createIsolate(JNIEnv *env, jclass V8, jobject V8Isolate, jstring snapshotBlob)
 {
-	const char * nativeString;
+	const char *nativeString;
 	V8IsolateData *isolateData = new V8IsolateData();
 	v8::Isolate::CreateParams create_params;
 
@@ -216,7 +217,7 @@ JNIEXPORT jlong JNICALL Java_com_mv8_V8__1createIsolate(JNIEnv *env, jclass V8, 
 
 	create_params.array_buffer_allocator = &array_buffer_allocator;
 	isolateData->isolate = v8::Isolate::New(create_params);
-	Isolate * isolate = isolateData->isolate;
+	Isolate *isolate = isolateData->isolate;
 	v8::Isolate::Scope isolate_scope(isolate);
 	HandleScope handle_scope(isolate);
 
@@ -224,15 +225,22 @@ JNIEXPORT jlong JNICALL Java_com_mv8_V8__1createIsolate(JNIEnv *env, jclass V8, 
 	globalObject->Set(String::NewFromUtf8(isolate, "__calljava", NewStringType::kNormal).ToLocalChecked(), FunctionTemplate::New(isolate, javaCallback));
 	isolateData->globalObjectTemplate = new Persistent<ObjectTemplate>(isolate, globalObject);
 
+	jobject instanceRef = env->NewGlobalRef(V8Isolate);
+	Local<External> ext = External::New(isolate, instanceRef);
+	isolateData->inspector = new InspectorClient(isolateData, instanceRef);
+
 	return reinterpret_cast<jlong>(isolateData);
 }
 
-JNIEXPORT jlong JNICALL Java_com_mv8_V8Isolate__1createContext(JNIEnv * env, jclass, jlong isolatePtr, jobject javaInstance)
+JNIEXPORT jlong JNICALL Java_com_mv8_V8Isolate__1createContext(JNIEnv *env, jclass, jlong isolatePtr, jobject javaInstance, jstring contextName)
 {
 	V8IsolateData *isolateData = reinterpret_cast<V8IsolateData *>(isolatePtr);
 	Isolate *isolate = isolateData->isolate;
 	v8::Isolate::Scope isolate_scope(isolate);
 	HandleScope handle_scope(isolate);
+
+	const uint16_t *contextNameString = env->GetStringChars(contextName, NULL);
+	int length = env->GetStringLength(contextName);
 
 	Handle<Context> context = Context::New(isolate, NULL, isolateData->globalObjectTemplate->Get(isolate));
 	jobject instanceRef = env->NewGlobalRef(javaInstance);
@@ -240,7 +248,9 @@ JNIEXPORT jlong JNICALL Java_com_mv8_V8Isolate__1createContext(JNIEnv * env, jcl
 	context->SetEmbedderData(1, ext);
 
 	Persistent<Context> *persistentContext = new Persistent<Context>(isolate, context);
-	isolateData->inspector = new InspectorClient(isolateData, instanceRef, context, true);
+	isolateData->inspector->connectContext(context, v8_inspector::StringView(contextNameString, length));
+
+	env->ReleaseStringChars(contextName, contextNameString);
 
 	return reinterpret_cast<jlong>(persistentContext);
 }
@@ -252,16 +262,16 @@ JNIEXPORT jlong JNICALL Java_com_mv8_V8Context__1runScript(JNIEnv *env, jclass c
 	Persistent<Context> *persistentContext = reinterpret_cast<Persistent<Context> *>(contextPtr);
 	Isolate::Scope isolate_scope(isolate);
 
-  	TryCatch try_catch(isolate);
+	TryCatch try_catch(isolate);
 	HandleScope handle_scope(isolate);
 	Local<Context> context = persistentContext->Get(isolate);
 
-	const uint16_t* unicodeString = env->GetStringChars(scriptSource, NULL);
+	const uint16_t *unicodeString = env->GetStringChars(scriptSource, NULL);
 	int length = env->GetStringLength(scriptSource);
 	Local<String> source = String::NewFromTwoByte(isolate, unicodeString, String::NewStringType::kNormalString, length);
 	env->ReleaseStringChars(scriptSource, unicodeString);
 
-	const uint16_t* scriptNameString = env->GetStringChars(scriptName, NULL);
+	const uint16_t *scriptNameString = env->GetStringChars(scriptName, NULL);
 	length = env->GetStringLength(scriptName);
 	Local<String> name = String::NewFromTwoByte(isolate, scriptNameString, String::NewStringType::kNormalString, length);
 	env->ReleaseStringChars(scriptName, scriptNameString);
@@ -271,14 +281,15 @@ JNIEXPORT jlong JNICALL Java_com_mv8_V8Context__1runScript(JNIEnv *env, jclass c
 	Local<Script> script = Script::Compile(context, source, &origin).ToLocalChecked();
 
 	Local<Value> result;
-	if (!script->Run(context).ToLocal(&result)) {
+	if (!script->Run(context).ToLocal(&result))
+	{
 		String::Utf8Value error(try_catch.Exception());
 	}
 	Persistent<Value> *persistentValue = new Persistent<Value>(isolate, result);
 	return reinterpret_cast<jlong>(persistentValue);
 }
 
-JNIEXPORT void JNICALL Java_com_mv8_V8Context__1dispose (JNIEnv * env, jclass, jlong isolatePtr, jlong contextPtr)
+JNIEXPORT void JNICALL Java_com_mv8_V8Context__1dispose(JNIEnv *env, jclass, jlong isolatePtr, jlong contextPtr)
 {
 	V8IsolateData *isolateData = reinterpret_cast<V8IsolateData *>(isolatePtr);
 	Isolate *isolate = isolateData->isolate;
@@ -300,10 +311,13 @@ JNIEXPORT jstring JNICALL Java_com_mv8_V8Value__1getStringValue(JNIEnv *env, jcl
 	Isolate::Scope isolate_scope(isolate);
 	HandleScope handle_scope(isolate);
 	Local<Value> v = persistentContext->Get(isolate);
-	if (v->IsString()) {
+	if (v->IsString())
+	{
 		String::Value unicodeString(v->ToString(isolate));
 		return env->NewString(*unicodeString, unicodeString.length());
-	} else {
+	}
+	else
+	{
 		return env->NewStringUTF("Not set");
 	}
 }
@@ -320,49 +334,50 @@ JNIEXPORT jlong JNICALL Java_com_mv8_V8Isolate__1createObjectTemplate(JNIEnv *, 
 	return reinterpret_cast<jlong>(persistent);
 }
 
-JNIEXPORT void JNICALL Java_com_mv8_V8Context__1sendInspectorMessage(JNIEnv * env, jclass, jlong isolatePtr, jlong contextPtr, jstring message)
+JNIEXPORT void JNICALL Java_com_mv8_V8Isolate__1sendInspectorMessage(JNIEnv *env, jclass, jlong isolatePtr, jstring message)
 {
 	V8IsolateData *isolateData = reinterpret_cast<V8IsolateData *>(isolatePtr);
-    Isolate::Scope isolate_scope(isolateData->isolate);
-    HandleScope scope(isolateData->isolate);
+	Isolate::Scope isolate_scope(isolateData->isolate);
+	HandleScope scope(isolateData->isolate);
 
-	Persistent<Context> *persistentContext = reinterpret_cast<Persistent<Context> *>(contextPtr);
-	Local<Context> context = persistentContext->Get(isolateData->isolate);
-
-    const uint16_t* unicodeString = env->GetStringChars(message, NULL);
-    int length = env->GetStringLength(message);
-    std::unique_ptr<uint16_t[]> buffer(new uint16_t[length]);
-    for (int i = 0; i < length; i++) {
-      buffer[i] = unicodeString[i];
-    }
-	v8_inspector::StringView message_view(buffer.get(), length);
+	const uint16_t *unicodeString = env->GetStringChars(message, NULL);
+	int length = env->GetStringLength(message);
+	std::unique_ptr<uint16_t[]> buffer(new uint16_t[length]);
+	for (int i = 0; i < length; i++)
 	{
-		v8_inspector::V8InspectorSession* session = InspectorClient::GetSession(context);
-		session->dispatchProtocolMessage(message_view);
+		buffer[i] = unicodeString[i];
 	}
+	v8_inspector::StringView message_view(buffer.get(), length);
+	v8_inspector::V8InspectorSession *session = isolateData->inspector->GetSession();
+	session->dispatchProtocolMessage(message_view);
 
 	env->ReleaseStringChars(message, unicodeString);
 }
 
-
-class MethodDescriptor {
+class MethodDescriptor
+{
 public:
-  jlong methodID;
-  jlong v8RuntimePtr;
+	jlong methodID;
+	jlong v8RuntimePtr;
 };
 
-void getJNIEnv(JNIEnv*& env) {
-  int getEnvStat = jvm->GetEnv((void **)&env, JNI_VERSION_1_6);
-  if (getEnvStat == JNI_EDETACHED) {
-    if (jvm->AttachCurrentThread((void **)&env, NULL) != 0) {
-      std::cout << "Failed to attach" << std::endl;
-    }
-  }
-  else if (getEnvStat == JNI_OK) {
-  }
-  else if (getEnvStat == JNI_EVERSION) {
-    std::cout << "GetEnv: version not supported" << std::endl;
-  }
+void getJNIEnv(JNIEnv *&env)
+{
+	int getEnvStat = jvm->GetEnv((void **)&env, JNI_VERSION_1_6);
+	if (getEnvStat == JNI_EDETACHED)
+	{
+		if (jvm->AttachCurrentThread((void **)&env, NULL) != 0)
+		{
+			std::cout << "Failed to attach" << std::endl;
+		}
+	}
+	else if (getEnvStat == JNI_OK)
+	{
+	}
+	else if (getEnvStat == JNI_EVERSION)
+	{
+		std::cout << "GetEnv: version not supported" << std::endl;
+	}
 }
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved)
@@ -386,13 +401,14 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved)
 	v8::V8::Initialize();
 
 	jvm = vm;
-    v8ContextCls = (jclass)env->NewGlobalRef((env)->FindClass("com/mv8/V8Context"));
+	v8ContextCls = (jclass)env->NewGlobalRef((env)->FindClass("com/mv8/V8Context"));
 	v8CallJavaMethodID = env->GetMethodID(v8ContextCls, "__calljava", "(Ljava/lang/String;)Ljava/lang/String;");
 
-	v8runIfWaitingForDebuggerMethodID = env->GetMethodID(v8ContextCls, "runIfWaitingForDebugger", "()V");
-	v8quitMessageLoopOnPauseMethodID = env->GetMethodID(v8ContextCls, "quitMessageLoopOnPause", "()V");
-	v8runMessageLoopOnPauseMethodID = env->GetMethodID(v8ContextCls, "runMessageLoopOnPause", "()V");
-	v8handleInspectorMessageMethodID = env->GetMethodID(v8ContextCls, "handleInspectorMessage", "(Ljava/lang/String;)V");
+	v8IsolateCls = (jclass)env->NewGlobalRef((env)->FindClass("com/mv8/V8Isolate"));
+	v8runIfWaitingForDebuggerMethodID = env->GetMethodID(v8IsolateCls, "runIfWaitingForDebugger", "()V");
+	v8quitMessageLoopOnPauseMethodID = env->GetMethodID(v8IsolateCls, "quitMessageLoopOnPause", "()V");
+	v8runMessageLoopOnPauseMethodID = env->GetMethodID(v8IsolateCls, "runMessageLoopOnPause", "()V");
+	v8handleInspectorMessageMethodID = env->GetMethodID(v8IsolateCls, "handleInspectorMessage", "(Ljava/lang/String;)V");
 
 	return JNI_VERSION_1_6;
 }

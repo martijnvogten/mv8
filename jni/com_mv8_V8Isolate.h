@@ -10,10 +10,10 @@ extern "C" {
 /*
  * Class:     com_mv8_V8Isolate
  * Method:    _createContext
- * Signature: (JLcom/mv8/V8Context;)J
+ * Signature: (JLcom/mv8/V8Context;Ljava/lang/String;)J
  */
 JNIEXPORT jlong JNICALL Java_com_mv8_V8Isolate__1createContext
-  (JNIEnv *, jclass, jlong, jobject);
+  (JNIEnv *, jclass, jlong, jobject, jstring);
 
 /*
  * Class:     com_mv8_V8Isolate
@@ -22,6 +22,14 @@ JNIEXPORT jlong JNICALL Java_com_mv8_V8Isolate__1createContext
  */
 JNIEXPORT jlong JNICALL Java_com_mv8_V8Isolate__1createObjectTemplate
   (JNIEnv *, jclass, jlong);
+
+/*
+ * Class:     com_mv8_V8Isolate
+ * Method:    _sendInspectorMessage
+ * Signature: (JLjava/lang/String;)V
+ */
+JNIEXPORT void JNICALL Java_com_mv8_V8Isolate__1sendInspectorMessage
+  (JNIEnv *, jclass, jlong, jstring);
 
 #ifdef __cplusplus
 }

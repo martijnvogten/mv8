@@ -1,185 +1,208 @@
 package jettyv8.server;
 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.LinkedBlockingQueue;
 
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.servlet.ServletContextHandler;
+import org.eclipse.jetty.servlet.ServletHolder;
 import org.eclipse.jetty.websocket.api.Session;
 import org.eclipse.jetty.websocket.api.WebSocketAdapter;
 import org.eclipse.jetty.websocket.servlet.WebSocketServlet;
 import org.eclipse.jetty.websocket.servlet.WebSocketServletFactory;
-import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-import com.mv8.InspectorChannel;
-import com.mv8.JavaCallback;
+import com.mv8.InspectorCallbacks;
 import com.mv8.V8;
 import com.mv8.V8Context;
 import com.mv8.V8Isolate;
-import com.mv8.V8Value;
+
+import jettyv8.server.MetadataServlet.IsolateMetadata;
 
 
 public class DebugServer {
 	
-	private static V8Context context;
+	static Logger logger = LoggerFactory.getLogger(DebugServer.class);
+	private Server server;
+	private ServletContextHandler handler;
+	private List<IsolateMetadata> isolatesMetaData = new ArrayList<>();
+	private int port;
 	
-	private static LinkedBlockingQueue<String> messagesFromInspectorFrontEnd = new LinkedBlockingQueue<>();
-	
-	private static boolean quitMessageLoop;
-
-	public static class MessagingAdapter extends WebSocketAdapter implements InspectorChannel {
+	class DebugSocketServlet implements InspectorCallbacks {
+		private V8Isolate isolate;
+		private LinkedBlockingQueue<String> messagesFromInspectorFrontEnd = new LinkedBlockingQueue<>();
+		private boolean quitMessageLoop;
 		
-	    private Session session;
-	    
-	    @Override
-	    public void onWebSocketConnect(Session session) {
-	        super.onWebSocketConnect(session); 
-	        this.session = session;
-	        context.setInspectorChannel(this);
-	    }
-	    
-	    @Override
-	    public void onWebSocketClose(int statusCode, String reason) {
-	        this.session = null;
-	        System.err.println("Close connection " + statusCode + ", " + reason);
-	        super.onWebSocketClose(statusCode, reason); 
-	    }
-	    
-	    @Override
-	    public void onWebSocketText(String message) {
-	    	super.onWebSocketText(message);
-	    	
-	    	messagesFromInspectorFrontEnd.offer(message);
-	    }
-	    
-	    public void sendText(String text) throws Exception {
-	    	session.getRemote().sendString(text);
-	    }
-
-		@Override
-		public void handleInspectorMessage(String message) {
-	        try {
-	        	sendText(message);
-	        } catch (Exception e) {
-	        	throw new RuntimeException(e);
-	        }
+		private Session session;
+		
+		private DebugSocketServlet(V8Isolate isolate, String urlPath) {
+			this.isolate = isolate;
+			
+			handler.addServlet(new ServletHolder(new WebSocketServlet() {
+				private static final long serialVersionUID = 1L;
+				
+				@Override
+				public void configure(WebSocketServletFactory factory) {
+					factory.setCreator((req, resp) -> new WebSocketAdapter() {
+						
+						@Override
+						public void onWebSocketConnect(Session session) {
+							super.onWebSocketConnect(session); 
+							DebugSocketServlet.this.session = session;
+						}
+						
+						@Override
+						public void onWebSocketClose(int statusCode, String reason) {
+							DebugSocketServlet.this.session = null;
+							System.err.println("Close connection " + statusCode + ", " + reason);
+							super.onWebSocketClose(statusCode, reason); 
+						}
+						
+						@Override
+						public void onWebSocketText(String message) {
+							super.onWebSocketText(message);
+							
+							messagesFromInspectorFrontEnd.offer(message);
+						}
+					});
+				}
+			}), urlPath);
+			
+			isolate.setInspectorCallbacks(this);
+			
+			new Thread(() -> {
+				try {
+					runMessageLoop();
+				} catch (Exception e) {
+					e.printStackTrace();
+				}
+			}).start();
+			
 		}
-	}
-	
-	public static class InspectorDebugServlet extends WebSocketServlet {
-		private static final long serialVersionUID = 1L;
-
-		@Override
-	    public void configure(WebSocketServletFactory factory) {
-	        factory.register(MessagingAdapter.class);
-	    }
-	}
-	
-	public static Server startDebugServerForContext(V8Context context2, int i) throws Exception {
-		context = context2;
 		
-		Server server = new Server();
-		ServerConnector connector = new ServerConnector(server);
-		connector.setPort(9999);
-		server.addConnector(connector);
+		public void runMessageLoop() throws Exception {
+			while (true) {
+				String message = messagesFromInspectorFrontEnd.poll();
+				if (message != null) {
+					logger.debug("Passing message: " + message);
+					isolate.sendInspectorMessage(message);
+				}
+				if (quitMessageLoop) {
+					quitMessageLoop = false;
+					break;
+				} else {
+					Thread.yield();
+				}
+			}
+		}
 		
-		ServletContextHandler handler = new ServletContextHandler(ServletContextHandler.SESSIONS);
-		handler.setContextPath("/");
-		server.setHandler(handler);
+		public void quitMessageLoopOnPause() {
+			quitMessageLoop = true;
+		}
 		
-		handler.addServlet(InspectorDebugServlet.class, "/ws");
-		handler.addServlet(MetadataServlet.class, "/json");
-		handler.addServlet(MetadataServlet.class, "/json/list");
-		handler.addServlet(MetadataServlet.class, "/json/version");
-		
-		server.start();
-		
-		new Thread(() -> {
+		public void runMessageLoopOnPause() {
 			try {
 				runMessageLoop();
 			} catch (Exception e) {
 				e.printStackTrace();
 			}
-		}).start();
+		}
+		
+		@Override
+		public void handleMessage(String theMessage) {
+	    	try {
+	    		logger.debug("Passing reponse: " + theMessage);
+	    		DebugSocketServlet.this.session.getRemote().sendString(theMessage);
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+
+		@Override
+		public void runIfWaitingForDebugger() {
+			logger.info("runIfWaitingForDebugger called");
+		}
+
+	}
+	
+	
+	public Server startServer(int port) throws Exception {
+		Server server = new Server();
+		this.port = port;
+		
+		ServerConnector connector = new ServerConnector(server);
+		connector.setPort(port);
+		server.addConnector(connector);
+		
+		handler = new ServletContextHandler(ServletContextHandler.SESSIONS);
+		handler.setContextPath("/");
+		server.setHandler(handler);
+		
+		ServletHolder metadataServletHolder = new ServletHolder(new MetadataServlet(() -> this.getIsolatesMetaData()));
+		
+		handler.addServlet(metadataServletHolder, "/json");
+		handler.addServlet(metadataServletHolder, "/json/list");
+		handler.addServlet(metadataServletHolder, "/json/version");
+		
+		server.start();
 		
 		return server;
 	}
 	
+	private List<IsolateMetadata> getIsolatesMetaData() {
+		return isolatesMetaData ;
+	}
+
+	private void join() throws InterruptedException {
+		server.join();
+	}
+
+	public static DebugServer start(int port) throws Exception {
+		DebugServer instance = new DebugServer();
+		instance.server = instance.startServer(port);
+		return instance;
+	}
+
 	public static void main(String[] args) throws Exception {
-		V8Isolate isolate = V8.createIsolate(
-				"sayIt = function() {return 'it' + new Date().getTime()};\n"
-				);
+		DebugServer server = start(9999);
 		
-		context = isolate.createContext();
-		V8Value result = context.runScript("debugIt = function() {\n"
+		V8Isolate isolate = V8.createIsolate("sayIt = function() {return 'it' + new Date().getTime()};\n");
+		server.attachIsolate(isolate);
+		
+		V8Context contextOne = isolate.createContext("one");
+		contextOne.runScript("debugIt = function() {\n"
 				+ " const a = 6, b = 7;\n"
 				+ " debugger;\n"
 				+ " return 'did it' + (a * b);\n"
 				+ "};\n", "");
-		System.out.println(result.getStringValue());
 		
-		Server server = startDebugServerForContext(context, 9999);
+		V8Context contextTwo = isolate.createContext("two");
+		contextTwo.runScript("debugIt = function() {\n"
+				+ " const a = 4, b = 5;\n"
+				+ " return 'did it' + (a * b);\n"
+				+ "};\n"
+				+ "debugIt();\n", "");
+		
+		V8Isolate isolateTwo = V8.createIsolate(null);
+		server.attachIsolate(isolateTwo);
+		
+		V8Context i2 = isolateTwo.createContext("isolateTwo");
+		i2.runScript("function bla() {console.log(\"BLA!\");}", "");
+		
 		server.join();
 	}
-	
-	public static void runMessageLoop() throws Exception {
-		while (true) {
-			String message = messagesFromInspectorFrontEnd.poll();
-			if (message != null) {
-				System.out.println("Sending message: " + message);
-				context.sendInspectorMessage(message);
-			}
-			if (quitMessageLoop) {
-				quitMessageLoop = false;
-				break;
-			} else {
-				Thread.yield();
-			}
-		}
-	}
-	
-	public static void quitMessageLoopOnPause() {
-		quitMessageLoop = true;
-	}
-	
-	public static void runMessageLoopOnPause() throws Exception {
-		runMessageLoop();
-	}
 
-	@Test
-	public void hello() {
-		V8Isolate isolate = V8.createIsolate(null);
-		V8Context context = isolate.createContext();
-		V8Value result = context.runScript("'Hello ' + 'world!'", "");
-		System.out.println(result.getStringValue());
-	}
+	public void attachIsolate(V8Isolate isolate) {
+		String id = UUID.randomUUID().toString();
+		String urlPath = "/" + id;
 
-	@Test
-	public void doit() {
-		V8Isolate isolate = V8.createIsolate("sayIt = function() {return 'it' + new Date().getTime()};");
-		
-		V8Context context = isolate.createContext();
-		JavaCallback cb = command -> {
-			if (command.startsWith("print:")) {
-				System.out.println(command.substring("print:".length()));
-			}
-			return "42";
-		};
-		context.setCallback(cb);
-		
-		V8Value result = context.runScript("__calljava('print:henk');", "");
-		
-		System.out.println(result.getStringValue());
-		
-		for(int i = 0; i < 10; i++) {
-			try (V8Context context2 = isolate.createContext()) {
-				context2.setCallback(cb);
-				context2.runScript("__calljava('print:' + sayIt());", "");
-				TimeIt.time("100000 invocations", () -> {
-					context2.runScript("for(var i = 0; i < 100000; i++) {__calljava(sayIt())};", "");
-				});
-			}
-		}
+		IsolateMetadata metaData = IsolateMetadata.create("MV8", "localhost", port, id, urlPath);
+		isolatesMetaData.add(metaData);
+		new DebugSocketServlet(isolate, urlPath);
 	}
-
 }

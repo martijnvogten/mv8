@@ -10,10 +10,10 @@ extern "C" {
 /*
  * Class:     com_mv8_V8
  * Method:    _createIsolate
- * Signature: (Ljava/lang/String;)J
+ * Signature: (Lcom/mv8/V8Isolate;Ljava/lang/String;)J
  */
 JNIEXPORT jlong JNICALL Java_com_mv8_V8__1createIsolate
-  (JNIEnv *, jclass, jstring);
+  (JNIEnv *, jclass, jobject, jstring);
 
 #ifdef __cplusplus
 }

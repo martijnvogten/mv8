@@ -19,7 +19,6 @@
 #include "com_mv8_V8Isolate.h"
 #include "com_mv8_V8Context.h"
 #include "com_mv8_V8Value.h"
-#include "mv8.h"
 
 using namespace std;
 using namespace v8;
@@ -37,6 +36,18 @@ jmethodID v8runIfWaitingForDebuggerMethodID = NULL;
 jmethodID v8quitMessageLoopOnPauseMethodID = NULL;
 jmethodID v8runMessageLoopOnPauseMethodID = NULL;
 jmethodID v8handleInspectorMessageMethodID = NULL;
+
+class InspectorClient;
+
+class V8IsolateData
+{
+  public:
+	Isolate *isolate;
+	StartupData startupData;
+	Persistent<ObjectTemplate> * globalObjectTemplate;
+  InspectorClient * inspector;
+	jobject v8;
+};
 
 class InspectorFrontend final : public v8_inspector::V8Inspector::Channel
 {

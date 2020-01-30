@@ -3,7 +3,6 @@ package jettyv8.server;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.UUID;
 import java.util.concurrent.Callable;
 
 import javax.servlet.ServletException;
@@ -17,34 +16,14 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 
 public class MetadataServlet extends DefaultServlet {
-	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 	private static final long serialVersionUID = 1L;
+	
+	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 	private Callable<List<IsolateMetadata>> isolatesMetadataProvider;
 	
 	public MetadataServlet(Callable<List<IsolateMetadata>> isolatesMetadataProvider) {
 		super();
 		this.isolatesMetadataProvider = isolatesMetadataProvider;
-	}
-	
-	public static class IsolateMetadata {
-		String description = "node.js instance";
-		String devtoolsFrontendUrl = "chrome-devtools://devtools/bundled/inspector.html?experiments=true&v8only=true&ws=//127.0.0.1:9999/ws";
-		String faviconUrl = "https://nodejs.org/static/favicon.ico";
-		String id = "99de305f-5abc-4d73-b924-387e1ca6ef23";
-		String title = "node";
-		String type = "node";
-		String url = "file://";
-		String webSocketDebuggerUrl = "ws://localhost:9999/ws";
-		
-		static IsolateMetadata create(String title, String hostName, int port, String id, String urlPath) {
-			IsolateMetadata result = new IsolateMetadata();
-			String urlWithoutProtocol = "//" + hostName + ":" + port + urlPath;
-			result.webSocketDebuggerUrl = "ws:" + urlWithoutProtocol;
-			result.devtoolsFrontendUrl = "chrome-devtools://devtools/bundled/inspector.html?experiments=true&v8only=true&ws=" + urlWithoutProtocol; 
-			result.id = id;
-			result.title = title;
-			return result;
-		}
 	}
 	
 	@Override

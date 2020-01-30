@@ -22,9 +22,6 @@ import com.mv8.V8;
 import com.mv8.V8Context;
 import com.mv8.V8Isolate;
 
-import jettyv8.server.MetadataServlet.IsolateMetadata;
-
-
 public class DebugServer {
 	
 	static Logger logger = LoggerFactory.getLogger(DebugServer.class);

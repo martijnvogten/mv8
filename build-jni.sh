@@ -1,6 +1,6 @@
 #!/bin/bash
 
-g++ -shared -I. -Iinclude -Idep_includes_macosx jni/com_mv8_V8.cpp jni/InspectorClient.cpp \
+g++ -shared -I. -Iinclude -Idep_includes_macosx jni/com_mv8_V8.cpp \
 	-o libmv8.dylib \
 	-Wl,libs/libv8_{libbase,libplatform,monolith}.a \
 	-ldl -pthread -std=c++11 -fPIC 

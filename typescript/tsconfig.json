@@ -13,7 +13,7 @@
 		"outFile": "build.js"
 	},
 	"include": [
-		"typings/**/*.ts",
+		"**/*.ts",
 		// Make sure main.ts is put LAST
 		"main.tsx",
 	]

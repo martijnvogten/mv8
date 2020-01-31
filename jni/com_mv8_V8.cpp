@@ -94,7 +94,7 @@ private:
 
 		JNIEnv *env;
 		getJNIEnv(env);
-		v8::String::Value unicodeString(message);
+		v8::String::Value unicodeString(isolateData_->isolate, message);
 		jstring javaString = (env)->NewString(*unicodeString, unicodeString.length());
 		env->CallVoidMethod(v8Isolate_, v8handleInspectorMessageMethodID, javaString);
 	}

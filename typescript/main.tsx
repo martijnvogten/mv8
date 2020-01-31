@@ -1,14 +1,31 @@
 declare var ReactDOMServer;
-declare var React;
-
 declare function __calljava(args: string): string;
+
+interface State {
+}
+
+interface Props {
+	title: string;
+	text: string;
+}
+
+class ContentItem extends React.Component<Props,State> {
+	render() {
+		const {title, text} = this.props as any;
+		debugger;
+		return (
+			<div>
+				<h1>{title}</h1>
+				<p>{text}</p>
+			</div>
+		);
+	}
+}
 
 function renderHTML() {
 	const html = ReactDOMServer.renderToStaticMarkup(
 		<body>
-			<h1>Henk</h1>
-			<p>Dit is de context</p>
-			<p>Zo, klik hier eens!</p>
+			<ContentItem title="Example title" text="Example text"/>
 		</body>
 	);
 	return html;

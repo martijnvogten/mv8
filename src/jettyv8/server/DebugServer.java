@@ -39,6 +39,7 @@ public class DebugServer {
 		private boolean quitMessageLoop;
 		
 		private Session session;
+		private boolean paused;
 		
 		private DebugSocketServlet(V8Isolate isolate, String urlPath) {
 			this.isolate = isolate;
@@ -66,7 +67,7 @@ public class DebugServer {
 						@Override
 						public void onWebSocketText(String message) {
 							super.onWebSocketText(message);
-							
+//							isolate.sendInspectorMessage(message);
 							messagesFromInspectorFrontEnd.offer(message);
 						}
 					});
@@ -77,15 +78,24 @@ public class DebugServer {
 			
 			new Thread(() -> {
 				try {
-					runMessageLoop();
+					while (true) {
+						if (!paused) {
+							String message = messagesFromInspectorFrontEnd.poll();
+							if (message != null) {
+								logger.debug("Passing message: " + message);
+								isolate.sendInspectorMessage(message);
+							}
+						}
+						Thread.yield();
+					}
 				} catch (Exception e) {
 					e.printStackTrace();
 				}
 			}).start();
-			
 		}
 		
 		public void runMessageLoop() throws Exception {
+			logger.warn("Entering runMessageLoop");
 			while (true) {
 				String message = messagesFromInspectorFrontEnd.poll();
 				if (message != null) {
@@ -94,7 +104,9 @@ public class DebugServer {
 				}
 				if (quitMessageLoop) {
 					quitMessageLoop = false;
-					break;
+					paused = false;
+					logger.debug("quitting!");
+					return;
 				} else {
 					Thread.yield();
 				}
@@ -102,11 +114,13 @@ public class DebugServer {
 		}
 		
 		public void quitMessageLoopOnPause() {
+			logger.info("Quit message loop");
 			quitMessageLoop = true;
 		}
 		
 		public void runMessageLoopOnPause() {
 			try {
+				paused = true;
 				runMessageLoop();
 			} catch (Exception e) {
 				e.printStackTrace();

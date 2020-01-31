@@ -38,7 +38,7 @@ public class V8Isolate {
 	}
 	
 	public void quitMessageLoopOnPause() {
-		System.out.println("QUITMESSAGELOOPONPAUSE");
+		logger.info("QUITMESSAGELOOPONPAUSE");
 		if (inspectorCallbacks == null) {
 			return;
 		}
@@ -50,7 +50,7 @@ public class V8Isolate {
 	}
 	
 	public void runMessageLoopOnPause() {
-		System.out.println("RUNMESSAGELOOPONPAUSE");
+		logger.info("RUNMESSAGELOOPONPAUSE");
 		if (inspectorCallbacks == null) {
 			return;
 		}

@@ -3,7 +3,7 @@ package com.mv8;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class V8Isolate {
+public class V8Isolate implements AutoCloseable {
 	static Logger logger = LoggerFactory.getLogger(V8Isolate.class);
 	
 	private long isolatePtr;
@@ -72,6 +72,11 @@ public class V8Isolate {
 	}
 
 	private static native void _sendInspectorMessage(long isolatePtr, String message);
+	private static native void _dispose(long isolatePtr);
 
+	@Override
+	public void close() throws Exception {
+		_dispose(isolatePtr);
+	}
 
 }

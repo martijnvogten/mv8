@@ -24,6 +24,7 @@ import com.mv8.InspectorCallbacks;
 import com.mv8.V8;
 import com.mv8.V8Context;
 import com.mv8.V8Isolate;
+import com.mv8.V8Value;
 
 public class DebugServer {
 	
@@ -189,14 +190,18 @@ public class DebugServer {
 		server.attachIsolate(isolate);
 		
 		V8Context contextOne = isolate.createContext("one");
-		contextOne.runScript("debugIt = function() {\n"
+		contextOne.runScript(
+				  "debugIt = function() {\n"
 				+ " const a = 6, b = 7;\n"
 				+ " debugger;\n"
 				+ " return 'did it' + (a * b);\n"
 				+ "};\n", "");
+		V8Value result = contextOne.runScript("debugIt()", "");
+		System.out.println("RESULT: " + result.getStringValue());
 		
 		V8Context contextTwo = isolate.createContext("two");
-		contextTwo.runScript("debugIt = function() {\n"
+		contextTwo.runScript(
+				  "debugIt = function() {\n"
 				+ " const a = 4, b = 5;\n"
 				+ " return 'did it' + (a * b);\n"
 				+ "};\n"

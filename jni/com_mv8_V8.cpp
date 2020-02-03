@@ -9,7 +9,7 @@
 *    EclipseSource - initial API and implementation
 ******************************************************************************/
 #include <jni.h>
-#include <libplatform/libplatform.h>
+#include "libplatform/libplatform.h"
 #include <iostream>
 #include <v8.h>
 #include <string.h>
@@ -45,7 +45,7 @@ class V8IsolateData
 	Isolate *isolate;
 	StartupData startupData;
 	Persistent<ObjectTemplate> * globalObjectTemplate;
-  InspectorClient * inspector;
+  	InspectorClient * inspector;
 	jobject v8;
 };
 
@@ -175,6 +175,7 @@ public:
 };
 
 ShellArrayBufferAllocator array_buffer_allocator;
+Local<Value> runScriptInContext(v8::Isolate* isolate, v8::Local<v8::Context> context, const char* utf8_source, const char* name);
 
 static void javaCallback(const v8::FunctionCallbackInfo<v8::Value> &args)
 {
@@ -201,7 +202,7 @@ static void javaCallback(const v8::FunctionCallbackInfo<v8::Value> &args)
 	{
 	}
 
-	String::Value unicodeString(args[0]->ToString(isolate));
+	String::Value unicodeString(isolate, args[0]->ToString(isolate));
 	jstring javaString = env->NewString(*unicodeString, unicodeString.length());
 	jobject result = env->CallObjectMethod(javaInstance, v8CallJavaMethodID, javaString);
 
@@ -222,7 +223,18 @@ JNIEXPORT jlong JNICALL Java_com_mv8_V8__1createIsolate(JNIEnv *env, jclass V8, 
 	{
 		jstring snapshotBlobGlobal = (jstring)env->NewGlobalRef(snapshotBlob);
 		nativeString = env->GetStringUTFChars(snapshotBlobGlobal, NULL); // Note: GetStringUTF8Chars does not support emoji's
-		isolateData->startupData = v8::V8::CreateSnapshotDataBlob(nativeString);
+
+		SnapshotCreator * snapshot_creator = new SnapshotCreator();
+		v8::Isolate* isolate = snapshot_creator->GetIsolate();
+		{
+			v8::HandleScope scope(isolate);
+			v8::Local<v8::Context> context = v8::Context::New(isolate);
+			runScriptInContext(isolate, context, nativeString, "<embedded>");
+			snapshot_creator->SetDefaultContext(context, NULL);
+		}
+
+		isolateData->startupData = snapshot_creator->CreateBlob(v8::SnapshotCreator::FunctionCodeHandling::kClear);
+		// isolateData->startupData = v8::V8::CreateSnapshotDataBlob(nativeString);
 		create_params.snapshot_blob = &isolateData->startupData;
 	}
 
@@ -266,37 +278,41 @@ JNIEXPORT jlong JNICALL Java_com_mv8_V8Isolate__1createContext(JNIEnv *env, jcla
 	return reinterpret_cast<jlong>(persistentContext);
 }
 
+Local<Value> runScriptInContext(v8::Isolate* isolate, v8::Local<v8::Context> context, const char* utf8_source, const char* name) {
+	v8::Context::Scope context_scope(context);
+	TryCatch try_catch(isolate);
+
+	Local<String> source_string = String::NewFromUtf8(isolate, utf8_source, NewStringType::kNormal).ToLocalChecked();
+	Local<String> resource_name = String::NewFromUtf8(isolate, name, NewStringType::kNormal).ToLocalChecked();
+
+	ScriptOrigin origin(resource_name);
+	ScriptCompiler::Source source(source_string, origin);
+
+	Local<Script> script = ScriptCompiler::Compile(context, &source).ToLocalChecked();
+	Local<Value> result;
+	if (!script->Run(context).ToLocal(&result))
+	{
+		String::Utf8Value error(isolate, try_catch.Exception());
+	}	
+	return result;
+}
+
 JNIEXPORT jlong JNICALL Java_com_mv8_V8Context__1runScript(JNIEnv *env, jclass clz, jlong isolatePtr, jlong contextPtr, jstring scriptSource, jstring scriptName)
 {
 	V8IsolateData *isolateData = reinterpret_cast<V8IsolateData *>(isolatePtr);
 	Isolate *isolate = isolateData->isolate;
 	Persistent<Context> *persistentContext = reinterpret_cast<Persistent<Context> *>(contextPtr);
 	Isolate::Scope isolate_scope(isolate);
-
-	TryCatch try_catch(isolate);
 	HandleScope handle_scope(isolate);
-	Local<Context> context = persistentContext->Get(isolate);
+	Context::Scope context_scope(persistentContext->Get(isolate));
 
-	const uint16_t *unicodeString = env->GetStringChars(scriptSource, NULL);
-	int length = env->GetStringLength(scriptSource);
-	Local<String> source = String::NewFromTwoByte(isolate, unicodeString, String::NewStringType::kNormalString, length);
-	env->ReleaseStringChars(scriptSource, unicodeString);
+	const char *utf8SourceString = env->GetStringUTFChars(scriptSource, NULL);
+	const char *utf8NameString = env->GetStringUTFChars(scriptName, NULL);
+	Local<Value> value = runScriptInContext(isolate, persistentContext->Get(isolate), utf8SourceString, utf8NameString);
+	env->ReleaseStringUTFChars(scriptSource, utf8SourceString);
+	env->ReleaseStringUTFChars(scriptName, utf8NameString);
 
-	const uint16_t *scriptNameString = env->GetStringChars(scriptName, NULL);
-	length = env->GetStringLength(scriptName);
-	Local<String> name = String::NewFromTwoByte(isolate, scriptNameString, String::NewStringType::kNormalString, length);
-	env->ReleaseStringChars(scriptName, scriptNameString);
-
-	Context::Scope context_scope(context);
-	v8::ScriptOrigin origin(name);
-	Local<Script> script = Script::Compile(context, source, &origin).ToLocalChecked();
-
-	Local<Value> result;
-	if (!script->Run(context).ToLocal(&result))
-	{
-		String::Utf8Value error(try_catch.Exception());
-	}
-	Persistent<Value> *persistentValue = new Persistent<Value>(isolate, result);
+	Persistent<Value> *persistentValue = new Persistent<Value>(isolate, value);
 	return reinterpret_cast<jlong>(persistentValue);
 }
 
@@ -316,6 +332,17 @@ JNIEXPORT void JNICALL Java_com_mv8_V8Context__1dispose(JNIEnv *env, jclass, jlo
 	persistentContext->Reset();
 }
 
+JNIEXPORT void JNICALL Java_com_mv8_V8Isolate__1dispose(JNIEnv *, jclass, jlong isolatePtr)
+{
+	V8IsolateData *isolateData = reinterpret_cast<V8IsolateData *>(isolatePtr);
+	Isolate *isolate = isolateData->isolate;
+	isolateData->globalObjectTemplate->Reset();
+	isolate->Dispose();
+	if (isolateData->startupData.data) {
+		free((void *)isolateData->startupData.data);
+	}
+}
+
 JNIEXPORT jstring JNICALL Java_com_mv8_V8Value__1getStringValue(JNIEnv *env, jclass, jlong isolatePtr, jlong, jlong valuePtr)
 {
 	V8IsolateData *isolateData = reinterpret_cast<V8IsolateData *>(isolatePtr);
@@ -326,7 +353,7 @@ JNIEXPORT jstring JNICALL Java_com_mv8_V8Value__1getStringValue(JNIEnv *env, jcl
 	Local<Value> v = persistentContext->Get(isolate);
 	if (v->IsString())
 	{
-		String::Value unicodeString(v->ToString(isolate));
+		String::Value unicodeString(isolate, v->ToString(isolate));
 		return env->NewString(*unicodeString, unicodeString.length());
 	}
 	else

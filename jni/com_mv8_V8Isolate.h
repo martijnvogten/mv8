@@ -31,6 +31,14 @@ JNIEXPORT jlong JNICALL Java_com_mv8_V8Isolate__1createObjectTemplate
 JNIEXPORT void JNICALL Java_com_mv8_V8Isolate__1sendInspectorMessage
   (JNIEnv *, jclass, jlong, jstring);
 
+/*
+ * Class:     com_mv8_V8Isolate
+ * Method:    _dispose
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_com_mv8_V8Isolate__1dispose
+  (JNIEnv *, jclass, jlong);
+
 #ifdef __cplusplus
 }
 #endif

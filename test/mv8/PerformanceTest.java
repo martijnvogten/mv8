@@ -24,10 +24,23 @@ public class PerformanceTest {
 		V8Value result = context.runScript("'Hello ' + 'world!'", "");
 		logger.debug(result.getStringValue());
 	}
+	
+	@Test
+	public void testDispose() {
+		for (int i = 0; i < 1000; i++) {
+			try (V8Isolate isolate = V8.createIsolate("const sayIt = function() {return 'it' + new Date().getTime()};");) {
+				V8Context context = isolate.createContext("hello");
+				V8Value result = context.runScript("'Hello ' + 'world!'", "");
+				logger.info(result.getStringValue());
+			} catch (Exception e) {
+				throw new RuntimeException(e);
+			}
+		}
+	}
 
 	@Test
 	public void doit() {
-		V8Isolate isolate = V8.createIsolate("sayIt = function() {return 'it' + new Date().getTime()};");
+		V8Isolate isolate = V8.createIsolate("const sayIt = function() {return 'it' + new Date().getTime()};");
 		
 		V8Context context = isolate.createContext("doit");
 		JavaCallback cb = command -> {

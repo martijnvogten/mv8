@@ -22,25 +22,8 @@ tasks.withType(Test) {
 
 compileJava.options.encoding = 'UTF-8'
 tasks.withType(JavaCompile) {
-	options.compilerArgs += ["-h", "jni"]
+	options.compilerArgs += ["-h", "src/main/cpp"]
 }
-
-// sourceSets {
-// 	main {
-// 		java {
-// 			srcDirs 'src'
-// 		}
-// 		resources {
-// 			srcDir 'src'
-// 		}
-// 	}
-
-// 	test {
-// 		java {
-// 			srcDirs 'test'
-// 		}
-// 	}
-// }
 
 task libs(type: Sync) {
 	from configurations.compile

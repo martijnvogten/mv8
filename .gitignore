@@ -6,3 +6,6 @@
 /jars
 /*.log
 /*.log.*
+/.classpath
+/.gitignore
+/.settings

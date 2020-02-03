@@ -186,7 +186,9 @@ public class DebugServer {
 	public static void main(String[] args) throws Exception {
 		DebugServer server = start(9999);
 		
-		V8Isolate isolate = V8.createIsolate("sayIt = function() {return 'it' + new Date().getTime()};\n");
+		byte[] startupData = V8.createStartupDataBlob(new String(Files.readAllBytes(Paths.get("js", "react.js")), StandardCharsets.UTF_8.name()), "<embedded>");
+		V8Isolate isolate = V8.createIsolate(startupData);
+		
 		server.attachIsolate(isolate);
 		
 		V8Context contextOne = isolate.createContext("one");
@@ -207,7 +209,9 @@ public class DebugServer {
 				+ "};\n"
 				+ "debugIt();\n", "");
 		
-		V8Isolate isolateTwo = V8.createIsolate(new String(Files.readAllBytes(Paths.get("js", "react.js")), StandardCharsets.UTF_8.name()));
+		byte[] startupDataReact = V8.createStartupDataBlob(new String(Files.readAllBytes(Paths.get("js", "react.js")), StandardCharsets.UTF_8.name()), "<embedded>");
+		
+		V8Isolate isolateTwo = V8.createIsolate(startupDataReact);
 		server.attachIsolate(isolateTwo);
 		
 		V8Context i2 = isolateTwo.createContext("isolateTwo");

@@ -82,7 +82,8 @@ public class WebServer {
 						Paths.get("js", "react-dom.js"), 
 						Paths.get("js", "react-dom-server.js"));
 				
-				isolate = V8.createIsolate("process = {pid: 12345, version: '8.3.14', arch: 'darwin'};\n\n" + reactJs);
+				byte[] startupData = V8.createStartupDataBlob("process = {pid: 12345, version: '8.3.14', arch: 'darwin'};\n\n" + reactJs, "<embedded>");
+				isolate = V8.createIsolate(startupData);
 						
 				debugServer.attachIsolate(isolate);
 				

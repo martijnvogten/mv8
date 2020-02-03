@@ -15,7 +15,7 @@ set -e -x
 
 V8_VERSION=7.3.492.27.1
 # Install libv8 Ruby gem
-sudo gem install libv8 --version $V8_VERSION
+# sudo gem install libv8 --version $V8_VERSION
 
 # this also generates/updates JNI header files in src/main/cpp/
 gradle assemble

@@ -10,10 +10,18 @@ extern "C" {
 /*
  * Class:     com_mv8_V8
  * Method:    _createIsolate
- * Signature: (Lcom/mv8/V8Isolate;Ljava/lang/String;)J
+ * Signature: (Lcom/mv8/V8Isolate;[B)J
  */
 JNIEXPORT jlong JNICALL Java_com_mv8_V8__1createIsolate
-  (JNIEnv *, jclass, jobject, jstring);
+  (JNIEnv *, jclass, jobject, jbyteArray);
+
+/*
+ * Class:     com_mv8_V8
+ * Method:    _createStartupDataBlob
+ * Signature: (Ljava/lang/String;Ljava/lang/String;)[B
+ */
+JNIEXPORT jbyteArray JNICALL Java_com_mv8_V8__1createStartupDataBlob
+  (JNIEnv *, jclass, jstring, jstring);
 
 #ifdef __cplusplus
 }

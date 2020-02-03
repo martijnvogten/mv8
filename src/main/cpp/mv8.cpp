@@ -213,7 +213,26 @@ static void javaCallback(const v8::FunctionCallbackInfo<v8::Value> &args)
 	args.GetReturnValue().Set(str);
 }
 
-JNIEXPORT jlong JNICALL Java_com_mv8_V8__1createIsolate(JNIEnv *env, jclass V8, jobject V8Isolate, jstring snapshotBlob)
+JNIEXPORT jbyteArray JNICALL Java_com_mv8_V8__1createStartupDataBlob(JNIEnv * env, jclass v8, jstring scriptSource, jstring fileName) {
+	jstring snapshotBlobGlobal = (jstring)env->NewGlobalRef(scriptSource);
+	const char * nativeString = env->GetStringUTFChars(scriptSource, NULL); // Note: GetStringUTF8Chars does not support emoji's
+
+	SnapshotCreator * snapshot_creator = new SnapshotCreator();
+	v8::Isolate* isolate = snapshot_creator->GetIsolate();
+	{
+		v8::HandleScope scope(isolate);
+		v8::Local<v8::Context> context = v8::Context::New(isolate);
+		runScriptInContext(isolate, context, nativeString, "<embedded>");
+		snapshot_creator->SetDefaultContext(context, NULL);
+	}
+	StartupData startupData = snapshot_creator->CreateBlob(v8::SnapshotCreator::FunctionCodeHandling::kClear);
+	jbyteArray ret = env->NewByteArray(startupData.raw_size);
+	env->SetByteArrayRegion(ret, 0, startupData.raw_size, (const jbyte *)startupData.data);
+	return ret;
+}
+
+
+JNIEXPORT jlong JNICALL Java_com_mv8_V8__1createIsolate(JNIEnv *env, jclass V8, jobject V8Isolate, jbyteArray snapshotBlob)
 {
 	const char *nativeString;
 	V8IsolateData *isolateData = new V8IsolateData();
@@ -221,19 +240,12 @@ JNIEXPORT jlong JNICALL Java_com_mv8_V8__1createIsolate(JNIEnv *env, jclass V8, 
 
 	if (snapshotBlob)
 	{
-		jstring snapshotBlobGlobal = (jstring)env->NewGlobalRef(snapshotBlob);
-		nativeString = env->GetStringUTFChars(snapshotBlobGlobal, NULL); // Note: GetStringUTF8Chars does not support emoji's
+		jbyteArray snapshotBlobGlobal = (jbyteArray)env->NewGlobalRef(snapshotBlob);
+		const char* buf = (const char *)malloc(env->GetArrayLength(snapshotBlobGlobal));
+		env->GetByteArrayRegion(snapshotBlobGlobal, 0, env->GetArrayLength(snapshotBlobGlobal), (jbyte *)buf);
+		isolateData->startupData.data = buf;
+		isolateData->startupData.raw_size = env->GetArrayLength(snapshotBlobGlobal);
 
-		SnapshotCreator * snapshot_creator = new SnapshotCreator();
-		v8::Isolate* isolate = snapshot_creator->GetIsolate();
-		{
-			v8::HandleScope scope(isolate);
-			v8::Local<v8::Context> context = v8::Context::New(isolate);
-			runScriptInContext(isolate, context, nativeString, "<embedded>");
-			snapshot_creator->SetDefaultContext(context, NULL);
-		}
-
-		isolateData->startupData = snapshot_creator->CreateBlob(v8::SnapshotCreator::FunctionCodeHandling::kClear);
 		// isolateData->startupData = v8::V8::CreateSnapshotDataBlob(nativeString);
 		create_params.snapshot_blob = &isolateData->startupData;
 	}

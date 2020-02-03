@@ -27,12 +27,14 @@ V8_OBJ="$V8_BASE/out.gn/libv8/obj"
 
 if [[ "$OSTYPE" == "linux-gnu" ]]; then
 	JAVA_INCLUDES="-I$JAVA_HOME/include -I$JAVA_HOME/include/linux"
+	OUTPUT_FILE=libmv8.so
 elif [[ "$OSTYPE" == "darwin"* ]]; then
 	JAVA_INCLUDES="-I$JAVA_HOME/../include -I$JAVA_HOME/../include/darwin"
+	OUTPUT_FILE=libmv8.dylib
 fi
 
 g++ -shared -I$V8_INCLUDE $JAVA_INCLUDES \
 	src/main/cpp/mv8.cpp \
-	-o libmv8.so \
+	-o $OUTPUT_FILE \
 	-Wl,$V8_OBJ/libv8_monolith.a \
 	-ldl -pthread -std=c++11 -fPIC

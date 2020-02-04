@@ -76,26 +76,30 @@ private:
 
 	void Send(const v8_inspector::StringView &string)
 	{
-
-		v8::Isolate::AllowJavascriptExecutionScope allow_script(isolateData_->isolate);
+		// v8::Isolate::AllowJavascriptExecutionScope allow_script(isolateData_->isolate);
 		int length = static_cast<int>(string.length());
 		// DCHECK_LT(length, v8::String::kMaxLength);
-		v8::Local<v8::String> message =
-			(string.is8Bit()
-				 ? v8::String::NewFromOneByte(
-					   isolateData_->isolate,
-					   reinterpret_cast<const uint8_t *>(string.characters8()),
-					   v8::NewStringType::kNormal, length)
-				 : v8::String::NewFromTwoByte(
-					   isolateData_->isolate,
-					   reinterpret_cast<const uint16_t *>(string.characters16()),
-					   v8::NewStringType::kNormal, length))
-				.ToLocalChecked();
+		// v8::Local<v8::String> message =
+		// 	(string.is8Bit()
+		// 		 ? v8::String::NewFromOneByte(
+		// 			   isolateData_->isolate,
+		// 			   reinterpret_cast<const uint8_t *>(string.characters8()),
+		// 			   v8::NewStringType::kNormal, length)
+		// 		 : v8::String::NewFromTwoByte(
+		// 			   isolateData_->isolate,
+		// 			   reinterpret_cast<const uint16_t *>(string.characters16()),
+		// 			   v8::NewStringType::kNormal, length))
+		// 		.ToLocalChecked();
 
 		JNIEnv *env;
 		getJNIEnv(env);
-		v8::String::Value unicodeString(isolateData_->isolate, message);
-		jstring javaString = (env)->NewString(*unicodeString, unicodeString.length());
+		// v8::String::Value unicodeString(isolateData_->isolate, message);
+		jstring javaString = 
+			(string.is8Bit() ?
+				env->NewStringUTF("henk")
+				:
+				env->NewString(string.characters16(),length)
+			);
 		env->CallVoidMethod(v8Isolate_, v8handleInspectorMessageMethodID, javaString);
 	}
 
@@ -389,8 +393,6 @@ JNIEXPORT jlong JNICALL Java_com_mv8_V8Isolate__1createObjectTemplate(JNIEnv *, 
 JNIEXPORT void JNICALL Java_com_mv8_V8Isolate__1sendInspectorMessage(JNIEnv *env, jclass, jlong isolatePtr, jstring message)
 {
 	V8IsolateData *isolateData = reinterpret_cast<V8IsolateData *>(isolatePtr);
-	Isolate::Scope isolate_scope(isolateData->isolate);
-	HandleScope scope(isolateData->isolate);
 
 	const uint16_t *unicodeString = env->GetStringChars(message, NULL);
 	int length = env->GetStringLength(message);

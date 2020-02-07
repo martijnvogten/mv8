@@ -13,7 +13,6 @@ import com.mv8.JavaCallback;
 import com.mv8.V8;
 import com.mv8.V8Context;
 import com.mv8.V8Isolate;
-import com.mv8.V8Value;
 
 import jettyv8.server.DebugServer;
 import jettyv8.server.TimeIt;
@@ -26,8 +25,8 @@ public class PerformanceTest {
 	public void hello() {
 		V8Isolate isolate = V8.createIsolate(null);
 		V8Context context = isolate.createContext("hello");
-		V8Value result = context.runScript("'Hello ' + 'world!'", "");
-		logger.debug(result.getStringValue());
+		String result = context.runScript("'Hello ' + 'world!'", "");
+		logger.debug(result);
 	}
 	
 	@Test
@@ -46,6 +45,31 @@ public class PerformanceTest {
 	}
 
 	@Test
+	public void timeouts() {
+		byte[] startupData = V8.createStartupDataBlob("const sayIt = function() {return 'it' + new Date().getTime()};", "<embedded>");
+		try (
+				V8Isolate isolate = V8.createIsolate(startupData);
+				V8Context context = isolate.createContext("doit");
+				) {
+		
+			JavaCallback cb = command -> {
+				if (command.startsWith("print:")) {
+					logger.debug(command.substring("print:".length()));
+				}
+				return "42";
+			};
+			context.setCallback(cb);
+			
+			context.runScript("__calljava('print:henk')", "");
+			context.runScript("setTimeout(() => __calljava('print:henk'), 0)", "");
+			
+			Thread.sleep(100);
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+	
+	@Test
 	public void doit() {
 		byte[] startupData = V8.createStartupDataBlob("const sayIt = function() {return 'it' + new Date().getTime()};", "<embedded>");
 		
@@ -60,9 +84,9 @@ public class PerformanceTest {
 		};
 		context.setCallback(cb);
 		
-		V8Value result = context.runScript("__calljava('print:henk');", "");
+		String result = context.runScript("__calljava('print:henk');", "");
 		
-		logger.debug(result.getStringValue());
+		logger.debug(result);
 		
 		for(int i = 0; i < 10; i++) {
 			try (V8Context context2 = isolate.createContext("context" + i)) {
@@ -90,8 +114,8 @@ public class PerformanceTest {
 			try (V8Isolate isolate = V8.createIsolate();
 			     V8Context context = isolate.createContext("context");) {
 				context.runScript(reactJs, "<react>");
-				V8Value value = context.runScript("ReactDOMServer.renderToStaticMarkup(React.createElement('h1'))", "");
-				System.out.println(value.getStringValue());
+				String value = context.runScript("ReactDOMServer.renderToStaticMarkup(React.createElement('h1'))", "");
+				System.out.println(value);
 			} catch (Exception e) {
 				throw new RuntimeException(e);
 			}
@@ -100,8 +124,8 @@ public class PerformanceTest {
 		TimeIt.time("Using startupData", () -> {
 			try (V8Isolate isolate = V8.createIsolate(startupData);
 			     V8Context context = isolate.createContext("context");) {
-				V8Value value = context.runScript("ReactDOMServer.renderToStaticMarkup(React.createElement('h1'))", "");
-				System.out.println(value.getStringValue());
+				String value = context.runScript("ReactDOMServer.renderToStaticMarkup(React.createElement('h1'))", "");
+				System.out.println(value);
 			} catch (Exception e) {
 				throw new RuntimeException(e);
 			}
@@ -112,8 +136,8 @@ public class PerformanceTest {
 			TimeIt.time("run 1000 contexts", () -> {
 				for (int i = 0; i < 1000; i++) {
 					try (V8Context context = isolate.createContext("context");) {
-						V8Value value = context.runScript("ReactDOMServer.renderToStaticMarkup(React.createElement('h1'))", "");
-						results.append(value.getStringValue());
+						String value = context.runScript("ReactDOMServer.renderToStaticMarkup(React.createElement('h1'))", "");
+						results.append(value);
 						results.append("\n");
 					}
 				}

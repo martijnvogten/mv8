@@ -24,7 +24,6 @@ import com.mv8.InspectorCallbacks;
 import com.mv8.V8;
 import com.mv8.V8Context;
 import com.mv8.V8Isolate;
-import com.mv8.V8Value;
 
 public class DebugServer {
 	
@@ -198,8 +197,8 @@ public class DebugServer {
 				+ " debugger;\n"
 				+ " return 'did it' + (a * b);\n"
 				+ "};\n", "");
-		V8Value result = contextOne.runScript("debugIt()", "");
-		System.out.println("RESULT: " + result.getStringValue());
+		String result = contextOne.runScript("debugIt()", "");
+		System.out.println("RESULT: " + result);
 		
 		V8Context contextTwo = isolate.createContext("two");
 		contextTwo.runScript(

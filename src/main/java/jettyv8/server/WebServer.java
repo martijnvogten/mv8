@@ -53,7 +53,7 @@ public class WebServer {
 						
 						context.runScript(readJsFiles(Paths.get("typescript", "build.js")), "typescript/build.js");
 						
-						return context.runScript("renderHTML()", "").getStringValue();
+						return context.runScript("renderHTML()", "");
 					} catch (Exception e) {
 						throw new RuntimeException(e);
 					}

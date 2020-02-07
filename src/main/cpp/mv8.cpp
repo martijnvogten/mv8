@@ -25,7 +25,7 @@ using namespace v8;
 
 void getJNIEnv(JNIEnv *&env);
 
-v8::Platform *v8Platform;
+std::unique_ptr<v8::Platform> v8Platform;
 JavaVM *jvm = NULL;
 
 jclass v8ContextCls = NULL;
@@ -36,6 +36,9 @@ jmethodID v8runIfWaitingForDebuggerMethodID = NULL;
 jmethodID v8quitMessageLoopOnPauseMethodID = NULL;
 jmethodID v8runMessageLoopOnPauseMethodID = NULL;
 jmethodID v8handleInspectorMessageMethodID = NULL;
+
+jclass v8ExceptionCls = NULL;
+jmethodID v8ExceptionConstructorMethodID = NULL;
 
 class InspectorClient;
 
@@ -179,7 +182,7 @@ public:
 };
 
 ShellArrayBufferAllocator array_buffer_allocator;
-Local<Value> runScriptInContext(v8::Isolate* isolate, v8::Local<v8::Context> context, const char* utf8_source, const char* name);
+void runScriptInContext(v8::Isolate* isolate, v8::Local<v8::Context> context, const char* utf8_source, const char* name, Local<Value> * result, Local<Value> * exception);
 
 static void javaCallback(const v8::FunctionCallbackInfo<v8::Value> &args)
 {
@@ -226,7 +229,9 @@ JNIEXPORT jbyteArray JNICALL Java_com_mv8_V8__1createStartupDataBlob(JNIEnv * en
 	{
 		v8::HandleScope scope(isolate);
 		v8::Local<v8::Context> context = v8::Context::New(isolate);
-		runScriptInContext(isolate, context, nativeString, "<embedded>");
+		Local<Value> result;
+		Local<Value> exception;
+		runScriptInContext(isolate, context, nativeString, "<embedded>", &result, &exception);
 		snapshot_creator->SetDefaultContext(context, NULL);
 	}
 	StartupData startupData = snapshot_creator->CreateBlob(v8::SnapshotCreator::FunctionCodeHandling::kClear);
@@ -294,7 +299,7 @@ JNIEXPORT jlong JNICALL Java_com_mv8_V8Isolate__1createContext(JNIEnv *env, jcla
 	return reinterpret_cast<jlong>(persistentContext);
 }
 
-Local<Value> runScriptInContext(v8::Isolate* isolate, v8::Local<v8::Context> context, const char* utf8_source, const char* name) {
+void runScriptInContext(v8::Isolate* isolate, v8::Local<v8::Context> context, const char* utf8_source, const char* name, Local<Value> *result, Local<Value> *exception) {
 	v8::Context::Scope context_scope(context);
 	TryCatch try_catch(isolate);
 
@@ -304,32 +309,62 @@ Local<Value> runScriptInContext(v8::Isolate* isolate, v8::Local<v8::Context> con
 	ScriptOrigin origin(resource_name);
 	ScriptCompiler::Source source(source_string, origin);
 
-	Local<Script> script = ScriptCompiler::Compile(context, &source).ToLocalChecked();
-	Local<Value> result;
-	if (!script->Run(context).ToLocal(&result))
-	{
-		String::Utf8Value error(isolate, try_catch.Exception());
-	}	
-	return result;
+	Local<Script> script;
+	if (!ScriptCompiler::Compile(context, &source).ToLocal(&script)) {
+		*exception = try_catch.Exception();
+		return;
+	}
+
+	if (!script->Run(context).ToLocal(result)) {
+		*exception = try_catch.Exception();
+	}
 }
 
-JNIEXPORT jlong JNICALL Java_com_mv8_V8Context__1runScript(JNIEnv *env, jclass clz, jlong isolatePtr, jlong contextPtr, jstring scriptSource, jstring scriptName)
+JNIEXPORT jstring JNICALL Java_com_mv8_V8Context__1runScript(JNIEnv *env, jclass clz, jlong isolatePtr, jlong contextPtr, jstring scriptSource, jstring scriptName)
 {
 	V8IsolateData *isolateData = reinterpret_cast<V8IsolateData *>(isolatePtr);
 	Isolate *isolate = isolateData->isolate;
-	Persistent<Context> *persistentContext = reinterpret_cast<Persistent<Context> *>(contextPtr);
 	Isolate::Scope isolate_scope(isolate);
 	HandleScope handle_scope(isolate);
-	Context::Scope context_scope(persistentContext->Get(isolate));
+
+	Persistent<Context> *persistentContext = reinterpret_cast<Persistent<Context> *>(contextPtr);
+	Local<Context> context = persistentContext->Get(isolate);
+	Context::Scope context_scope(context);
 
 	const char *utf8SourceString = env->GetStringUTFChars(scriptSource, NULL);
 	const char *utf8NameString = env->GetStringUTFChars(scriptName, NULL);
-	Local<Value> value = runScriptInContext(isolate, persistentContext->Get(isolate), utf8SourceString, utf8NameString);
+	Local<Value> result;
+	Local<Value> exception;
+	runScriptInContext(isolate, context, utf8SourceString, utf8NameString, &result, &exception);
 	env->ReleaseStringUTFChars(scriptSource, utf8SourceString);
 	env->ReleaseStringUTFChars(scriptName, utf8NameString);
 
-	Persistent<Value> *persistentValue = new Persistent<Value>(isolate, value);
-	return reinterpret_cast<jlong>(persistentValue);
+	if (!exception.IsEmpty()) {
+		v8::Object* object = v8::Object::Cast(*exception);
+
+		Local<Array> property_names = object->GetPropertyNames(context).ToLocalChecked();
+		std::cout << "Number of properties " << property_names->Length() << endl;
+		for (int i = 0; i < property_names->Length(); ++i) {
+			Local<Value> key = property_names->Get(i);
+			std::cout << "Found key: " << (*String::Utf8Value(isolate, key)) << endl;
+		}
+
+		MaybeLocal<Value> stack = object->Get(context, v8::String::NewFromOneByte(isolate, (const uint8_t *)"stack", v8::NewStringType::kNormal).ToLocalChecked());
+		String::Value unicodeString(isolate, exception->ToString(isolate));
+		String::Value stackAsString(isolate, stack.ToLocalChecked());
+		jobject javaException = env->NewObject(v8ExceptionCls, v8ExceptionConstructorMethodID, 
+			env->NewString(*unicodeString, unicodeString.length()),
+			env->NewString(*stackAsString, stackAsString.length()));
+		env->Throw((jthrowable)javaException);
+		return NULL;
+	}
+
+	if (result.IsEmpty()) {
+		return NULL;
+	}
+
+	String::Value unicodeString(isolate, result->ToString(isolate));
+	return env->NewString(*unicodeString, unicodeString.length());
 }
 
 JNIEXPORT void JNICALL Java_com_mv8_V8Context__1dispose(JNIEnv *env, jclass, jlong isolatePtr, jlong contextPtr)
@@ -450,8 +485,8 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved)
 	v8::V8::InitializeICU();
 	V8::InitializeExternalStartupData(".");
 
-	v8Platform = v8::platform::CreateDefaultPlatform();
-	v8::V8::InitializePlatform(v8Platform);
+	v8Platform = v8::platform::NewDefaultPlatform();
+	v8::V8::InitializePlatform(v8Platform.get());
 	v8::V8::Initialize();
 
 	jvm = vm;
@@ -463,6 +498,11 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved)
 	v8quitMessageLoopOnPauseMethodID = env->GetMethodID(v8IsolateCls, "quitMessageLoopOnPause", "()V");
 	v8runMessageLoopOnPauseMethodID = env->GetMethodID(v8IsolateCls, "runMessageLoopOnPause", "()V");
 	v8handleInspectorMessageMethodID = env->GetMethodID(v8IsolateCls, "handleInspectorMessage", "(Ljava/lang/String;)V");
+
+	v8ExceptionCls = (jclass)env->NewGlobalRef((env)->FindClass("com/mv8/V8Exception"));
+	v8ExceptionConstructorMethodID = env->GetMethodID(v8ExceptionCls, "<init>", "(Ljava/lang/String;Ljava/lang/String;)V");
+
+	v8ExceptionCls = (jclass)env->NewGlobalRef((env)->FindClass("com/mv8/V8Exception"));
 
 	return JNI_VERSION_1_6;
 }

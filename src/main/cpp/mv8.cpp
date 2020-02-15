@@ -209,13 +209,13 @@ static void javaCallback(const v8::FunctionCallbackInfo<v8::Value> &args)
 	{
 	}
 
-	String::Value unicodeString(isolate, args[0]->ToString(isolate));
+	String::Value unicodeString(isolate, args[0]->ToString(context).ToLocalChecked());
 	jstring javaString = env->NewString(*unicodeString, unicodeString.length());
 	jobject result = env->CallObjectMethod(javaInstance, v8CallJavaMethodID, javaString);
 
 	const uint16_t *resultString = env->GetStringChars((jstring)result, NULL);
 	int length = env->GetStringLength((jstring)result);
-	Local<String> str = String::NewFromTwoByte(isolate, resultString, String::NewStringType::kNormalString, length);
+	Local<String> str = String::NewFromTwoByte(isolate, resultString, NewStringType::kNormal, length).ToLocalChecked();
 	env->ReleaseStringChars((jstring)result, resultString);
 	args.GetReturnValue().Set(str);
 }
@@ -286,10 +286,11 @@ JNIEXPORT jlong JNICALL Java_com_mv8_V8Isolate__1createContext(JNIEnv *env, jcla
 	const uint16_t *contextNameString = env->GetStringChars(contextName, NULL);
 	int length = env->GetStringLength(contextName);
 
-	Handle<Context> context = Context::New(isolate, NULL, isolateData->globalObjectTemplate->Get(isolate));
 	jobject instanceRef = env->NewGlobalRef(javaInstance);
-	Local<External> ext = External::New(isolate, instanceRef);
-	context->SetEmbedderData(1, ext);
+
+	Local<Context> context = Context::New(isolate, NULL, isolateData->globalObjectTemplate->Get(isolate));
+	v8::Context::Scope context_scope(context);
+	context->SetEmbedderData(1, External::New(isolate, instanceRef));
 
 	Persistent<Context> *persistentContext = new Persistent<Context>(isolate, context);
 	isolateData->inspector->connectContext(context, v8_inspector::StringView(contextNameString, length));
@@ -342,15 +343,9 @@ JNIEXPORT jstring JNICALL Java_com_mv8_V8Context__1runScript(JNIEnv *env, jclass
 	if (!exception.IsEmpty()) {
 		v8::Object* object = v8::Object::Cast(*exception);
 
-		Local<Array> property_names = object->GetPropertyNames(context).ToLocalChecked();
-		std::cout << "Number of properties " << property_names->Length() << endl;
-		for (int i = 0; i < property_names->Length(); ++i) {
-			Local<Value> key = property_names->Get(i);
-			std::cout << "Found key: " << (*String::Utf8Value(isolate, key)) << endl;
-		}
 
 		MaybeLocal<Value> stack = object->Get(context, v8::String::NewFromOneByte(isolate, (const uint8_t *)"stack", v8::NewStringType::kNormal).ToLocalChecked());
-		String::Value unicodeString(isolate, exception->ToString(isolate));
+		String::Value unicodeString(isolate, exception->ToString(context).ToLocalChecked());
 		String::Value stackAsString(isolate, stack.ToLocalChecked());
 		jobject javaException = env->NewObject(v8ExceptionCls, v8ExceptionConstructorMethodID, 
 			env->NewString(*unicodeString, unicodeString.length()),
@@ -363,7 +358,7 @@ JNIEXPORT jstring JNICALL Java_com_mv8_V8Context__1runScript(JNIEnv *env, jclass
 		return NULL;
 	}
 
-	String::Value unicodeString(isolate, result->ToString(isolate));
+	String::Value unicodeString(isolate, result->ToString(context).ToLocalChecked());
 	return env->NewString(*unicodeString, unicodeString.length());
 }
 
@@ -375,11 +370,14 @@ JNIEXPORT void JNICALL Java_com_mv8_V8Context__1dispose(JNIEnv *env, jclass, jlo
 	HandleScope handle_scope(isolate);
 
 	Local<Context> context = persistentContext->Get(isolate);
-	isolateData->inspector->disconnectContext(context);
 
 	Local<External> data = Local<External>::Cast(context->GetEmbedderData(1));
 	jobject javaInstance = reinterpret_cast<jobject>(data->Value());
-	env->DeleteGlobalRef(javaInstance);
+	if (javaInstance) {
+		env->DeleteGlobalRef(javaInstance);
+	}
+
+	isolateData->inspector->disconnectContext(context);
 	persistentContext->Reset();
 }
 
@@ -394,17 +392,18 @@ JNIEXPORT void JNICALL Java_com_mv8_V8Isolate__1dispose(JNIEnv *, jclass, jlong 
 	}
 }
 
-JNIEXPORT jstring JNICALL Java_com_mv8_V8Value__1getStringValue(JNIEnv *env, jclass, jlong isolatePtr, jlong, jlong valuePtr)
+JNIEXPORT jstring JNICALL Java_com_mv8_V8Value__1getStringValue(JNIEnv *env, jclass, jlong isolatePtr, jlong contextPtr, jlong valuePtr)
 {
 	V8IsolateData *isolateData = reinterpret_cast<V8IsolateData *>(isolatePtr);
 	Isolate *isolate = isolateData->isolate;
-	Persistent<Value> *persistentContext = reinterpret_cast<Persistent<Value> *>(valuePtr);
+	Persistent<Context> *persistentContext = reinterpret_cast<Persistent<Context> *>(contextPtr);
+	Persistent<Value> *persistentValue = reinterpret_cast<Persistent<Value> *>(valuePtr);
 	Isolate::Scope isolate_scope(isolate);
 	HandleScope handle_scope(isolate);
-	Local<Value> v = persistentContext->Get(isolate);
+	Local<Value> v = persistentValue->Get(isolate);
 	if (v->IsString())
 	{
-		String::Value unicodeString(isolate, v->ToString(isolate));
+		String::Value unicodeString(isolate, v->ToString(persistentContext->Get(isolate)).ToLocalChecked());
 		return env->NewString(*unicodeString, unicodeString.length());
 	}
 	else

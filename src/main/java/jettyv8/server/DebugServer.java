@@ -76,22 +76,6 @@ public class DebugServer {
 			
 			isolate.setInspectorCallbacks(this);
 			
-			new Thread(() -> {
-				try {
-					while (true) {
-						if (!paused) {
-							String message = messagesFromInspectorFrontEnd.poll();
-							if (message != null) {
-								logger.debug("Passing message: " + message);
-								isolate.sendInspectorMessage(message);
-							}
-						}
-						Thread.yield();
-					}
-				} catch (Exception e) {
-					e.printStackTrace();
-				}
-			}).start();
 		}
 		
 		public void runMessageLoop() throws Exception {
@@ -188,7 +172,7 @@ public class DebugServer {
 		byte[] startupData = V8.createStartupDataBlob(new String(Files.readAllBytes(Paths.get("js", "react.js")), StandardCharsets.UTF_8.name()), "<embedded>");
 		V8Isolate isolate = V8.createIsolate(startupData);
 		
-		server.attachIsolate(isolate);
+		DebugSocketServlet socket = server.attachIsolate(isolate);
 		
 		V8Context contextOne = isolate.createContext("one");
 		contextOne.runScript(
@@ -216,15 +200,17 @@ public class DebugServer {
 		V8Context i2 = isolateTwo.createContext("isolateTwo");
 		i2.runScript("function bla() {console.log(\"BLA!\");}", "");
 		
+		socket.runMessageLoop();
+		
 		server.join();
 	}
 
-	public void attachIsolate(V8Isolate isolate) {
+	public DebugSocketServlet attachIsolate(V8Isolate isolate) {
 		String id = UUID.randomUUID().toString();
 		String urlPath = "/" + id;
 
 		IsolateMetadata metaData = IsolateMetadata.create("MV8", "localhost", port, id, urlPath);
 		isolatesMetaData.add(metaData);
-		new DebugSocketServlet(isolate, urlPath);
+		return new DebugSocketServlet(isolate, urlPath);
 	}
 }

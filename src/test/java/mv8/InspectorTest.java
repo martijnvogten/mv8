@@ -74,7 +74,7 @@ public class InspectorTest {
 		
 		public void sendCommand(String command) {
 			logger.debug("Sending command: " + command);
-			isolate.sendInspectorMessage(command);
+			messagesToSend.add(command);
 		}
 	}
 
@@ -93,12 +93,11 @@ public class InspectorTest {
 			worker.execute(() -> {
 				frontEnd.sendCommand("{\"id\":1,\"method\":\"Runtime.enable\"}");
 				frontEnd.sendCommand("{\"id\":3,\"method\":\"Debugger.enable\",\"params\":{\"maxScriptsCacheSize\":100000000}}");
-				frontEnd.sendCommand("{\"id\":13,\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"e\",\"includeCommandLineAPI\":true,\"contextId\":1,\"generatePreview\":true,\"userGesture\":false,\"awaitPromise\":false,\"throwOnSideEffect\":true,\"timeout\":500,\"disableBreaks\":true}}");
-			});
+				frontEnd.sendCommand("{\"id\":13,\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"3 + 9\",\"includeCommandLineAPI\":true,\"contextId\":1,\"generatePreview\":true,\"userGesture\":false,\"awaitPromise\":false,\"throwOnSideEffect\":true,\"timeout\":500,\"disableBreaks\":true}}");
+ 			});
 			
-			Thread.sleep(100);
+			frontEnd.runMessageLoop();
 			
-			logger.debug(result);
 		}
 	}
 

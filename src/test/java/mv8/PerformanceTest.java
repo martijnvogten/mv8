@@ -22,11 +22,12 @@ public class PerformanceTest {
 	static Logger logger = LoggerFactory.getLogger(DebugServer.class);
 
 	@Test
-	public void hello() {
-		V8Isolate isolate = V8.createIsolate(null);
-		V8Context context = isolate.createContext("hello");
-		String result = context.runScript("'Hello ' + 'world!'", "");
-		logger.debug(result);
+	public void hello() throws Exception {
+		try (V8Isolate isolate = V8.createIsolate(null);
+			V8Context context = isolate.createContext("hello");) {
+			String result = context.runScript("'Hello ' + 'world!'", "");
+			logger.debug(result);
+		}
 	}
 	
 	@Test
@@ -34,6 +35,7 @@ public class PerformanceTest {
 		for (int i = 0; i < 1000; i++) {
 			try (V8Isolate isolate = V8.createIsolate(null);) {
 				try (V8Context context = isolate.createContext("hello");) {
+					System.out.println("i = " + i);
 					context.runScript("'Hello ' + 'world!'", "");
 //					logger.info(result.getStringValue());
 				}

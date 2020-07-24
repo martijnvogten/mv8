@@ -140,6 +140,12 @@ public:
 		env->CallVoidMethod(v8Isolate_, v8runMessageLoopOnPauseMethodID);
 	}
 
+	void runIfWaitingForDebugger(int contextGroupId) override {
+		JNIEnv *env;
+		getJNIEnv(env);
+		env->CallVoidMethod(v8Isolate_, v8runIfWaitingForDebuggerMethodID);
+	}
+
 	void quitMessageLoopOnPause() override
 	{
 		JNIEnv *env;

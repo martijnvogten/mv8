@@ -31,17 +31,39 @@ public class PerformanceTest {
 	}
 	
 	@Test
-	public void testDispose() {
-		for (int i = 0; i < 1000; i++) {
-			try (V8Isolate isolate = V8.createIsolate(null);) {
-				try (V8Context context = isolate.createContext("hello");) {
-					System.out.println("i = " + i);
+	public void testDispose() throws Exception {
+		String reactJs = readJsFiles(
+				Paths.get("js", "react.min.js"), 
+				Paths.get("js", "react-dom.min.js"), 
+				Paths.get("js", "react-dom-server.min.js")
+				);
+		
+		String warmUp = "ReactDOMServer.renderToStaticMarkup(React.createElement(\"body\"))";
+		
+		byte[] startupData = V8.createStartupDataBlob(reactJs + "\n" + warmUp, "<embedded>");
+		System.out.println("startyp data size: " + startupData.length);
+		
+		try (V8Isolate isolate = V8.createIsolate(startupData);) {
+			TimeIt.time("create 10 contexts", () -> {
+				for (int i = 0; i < 10; i++) {
+					try (V8Context context = isolate.createContext("hello");) {
+//					System.out.println("i = " + i);
 					context.runScript("'Hello ' + 'world!'", "");
 //					logger.info(result.getStringValue());
+					}
 				}
-			} catch (Exception e) {
-				throw new RuntimeException(e);
-			}
+			});
+			TimeIt.time("create 10 contexts", () -> {
+				for (int i = 0; i < 10; i++) {
+					try (V8Context context = isolate.createContext("hello");) {
+//					System.out.println("i = " + i);
+					context.runScript("'Hello ' + 'world!'", "");
+//					logger.info(result.getStringValue());
+					}
+				}
+			});
+		} catch (Exception e) {
+			throw new RuntimeException(e);
 		}
 		logger.info("Done!");
 	}

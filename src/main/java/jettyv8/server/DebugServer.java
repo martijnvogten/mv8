@@ -36,10 +36,8 @@ public class DebugServer {
 	class DebugSocketServlet implements InspectorCallbacks {
 		private V8Isolate isolate;
 		private LinkedBlockingQueue<String> messagesFromInspectorFrontEnd = new LinkedBlockingQueue<>();
-		private boolean quitMessageLoop;
 		
 		private Session session;
-		private boolean paused;
 		
 		private DebugSocketServlet(V8Isolate isolate, String urlPath) {
 			this.isolate = isolate;
@@ -75,36 +73,28 @@ public class DebugServer {
 			}), urlPath);
 			
 			isolate.setInspectorCallbacks(this);
-			
 		}
 		
 		public void runMessageLoop() throws Exception {
 			logger.warn("Entering runMessageLoop");
 			while (true) {
-				String message = messagesFromInspectorFrontEnd.poll();
-				if (message != null) {
-					logger.debug("Passing message: " + message);
-					isolate.sendInspectorMessage(message);
-				}
-				if (quitMessageLoop) {
-					quitMessageLoop = false;
-					paused = false;
+				String message = messagesFromInspectorFrontEnd.take();
+				if ("__QUIT__".equals(message)) {
 					logger.debug("quitting!");
 					return;
-				} else {
-					Thread.yield();
 				}
+				logger.debug("Passing message: " + message);
+				isolate.sendInspectorMessage(message);
 			}
 		}
 		
 		public void quitMessageLoopOnPause() {
 			logger.info("Quit message loop");
-			quitMessageLoop = true;
+			messagesFromInspectorFrontEnd.add("__QUIT__");
 		}
 		
 		public void runMessageLoopOnPause() {
 			try {
-				paused = true;
 				runMessageLoop();
 			} catch (Exception e) {
 				e.printStackTrace();
@@ -124,8 +114,8 @@ public class DebugServer {
 		@Override
 		public void runIfWaitingForDebugger() {
 			logger.info("runIfWaitingForDebugger called");
+			messagesFromInspectorFrontEnd.add("__QUIT__");
 		}
-
 	}
 	
 	
@@ -169,10 +159,10 @@ public class DebugServer {
 	public static void main(String[] args) throws Exception {
 		DebugServer server = start(9999);
 		
-		byte[] startupData = V8.createStartupDataBlob(new String(Files.readAllBytes(Paths.get("js", "react.js")), StandardCharsets.UTF_8.name()), "<embedded>");
+		byte[] startupData = V8.createStartupDataBlob("process = {pid: 12345, version: '8.3.14', arch: 'darwin'};\n\n" + new String(Files.readAllBytes(Paths.get("js", "react.js")), StandardCharsets.UTF_8.name()), "<embedded>");
 		V8Isolate isolate = V8.createIsolate(startupData);
 		
-		DebugSocketServlet socket = server.attachIsolate(isolate);
+		InspectableIsolate socket = server.attachIsolate(isolate);
 		
 		V8Context contextOne = isolate.createContext("one");
 		contextOne.runScript(
@@ -192,25 +182,48 @@ public class DebugServer {
 				+ "};\n"
 				+ "debugIt();\n", "");
 		
-		byte[] startupDataReact = V8.createStartupDataBlob(new String(Files.readAllBytes(Paths.get("js", "react.js")), StandardCharsets.UTF_8.name()), "<embedded>");
+//		byte[] startupDataReact = V8.createStartupDataBlob(new String(Files.readAllBytes(Paths.get("js", "react.js")), StandardCharsets.UTF_8.name()), "<embedded>");
 		
-		V8Isolate isolateTwo = V8.createIsolate(startupDataReact);
-		server.attachIsolate(isolateTwo);
-		
-		V8Context i2 = isolateTwo.createContext("isolateTwo");
-		i2.runScript("function bla() {console.log(\"BLA!\");}", "");
+		new Thread(() -> {
+			try (V8Isolate isolateTwo = V8.createIsolate(startupData);
+				InspectableIsolate inspectable = server.attachIsolate(isolateTwo);
+				V8Context i2 = isolateTwo.createContext("isolateTwo"); ) {
+				i2.runScript("function bla() {console.log(\"BLA!\");}", "");
+				inspectable.runMessageLoop();
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+		}).start();
 		
 		socket.runMessageLoop();
 		
 		server.join();
 	}
+	
+	public abstract static class InspectableIsolate implements AutoCloseable {
 
-	public DebugSocketServlet attachIsolate(V8Isolate isolate) {
+		private final DebugSocketServlet socket;
+
+		public InspectableIsolate(DebugSocketServlet socket) {
+			this.socket = socket;
+		}
+		
+		public void runMessageLoop() throws Exception {
+			socket.runMessageLoop();
+		}
+	}
+	
+	public InspectableIsolate attachIsolate(V8Isolate isolate) {
 		String id = UUID.randomUUID().toString();
 		String urlPath = "/" + id;
 
 		IsolateMetadata metaData = IsolateMetadata.create("MV8", "localhost", port, id, urlPath);
 		isolatesMetaData.add(metaData);
-		return new DebugSocketServlet(isolate, urlPath);
+		DebugSocketServlet socket = new DebugSocketServlet(isolate, urlPath);
+		return new InspectableIsolate(socket) {
+			@Override
+			public void close() throws Exception {
+				isolatesMetaData.remove(metaData);
+			}};
 	}
 }

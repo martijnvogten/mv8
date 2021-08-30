@@ -13,8 +13,11 @@ set -e -x
 #  g++
 #  java
 
-V8_BASE="$(cd ~/git/v8 ; pwd)"
-V8_VERSION=8.0.426.17
+V8_VERSION=8.4.255.0
+
+# Install libv8 Ruby gem
+sudo gem install libv8 --version $V8_VERSION
+V8_BASE="$(cd $(dirname $(gem which libv8))/../vendor/v8 ; pwd)"
 
 # this also generates/updates JNI header files in src/main/cpp/
 gradle assemble
@@ -36,7 +39,7 @@ g++ -shared -I$V8_INCLUDE $JAVA_INCLUDES \
 	src/main/cpp/mv8.cpp \
 	-o $OUTPUT_FILE \
 	-Wl,$V8_OBJ/libv8_monolith.a \
-	-ldl -pthread -std=c++11 -fPIC
+	-ldl -pthread -std=c++11 -fPIC -fno-rtti
 # Note: Omitting V8_COMPRESS_POINTERS will lead to segfaults
 # https://stackoverflow.com/questions/59533323/v8-quickisundefined-crushes-randomly-when-using-isconstructcall
 
